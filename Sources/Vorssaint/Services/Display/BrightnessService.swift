@@ -1324,7 +1324,7 @@ final class BrightnessService: ObservableObject {
         }
 
         // Software route for everything left over: capture the display's
-        // clean gamma curve, restore this session's dim level and reapply it
+        // clean gamma curve and put back a dim this app applied itself
         // (reconfigurations and wake reset gamma behind our back).
         // A display that drops off for a moment, which is what a hub
         // renegotiating or a cable settling looks like, comes back needing
@@ -1338,7 +1338,9 @@ final class BrightnessService: ObservableObject {
         for index in softwareIndices.sorted() {
             let id = built[index].id
             stateLock.lock()
-            var value = rememberedLevel(for: id) ?? 1.0
+            var value = BrightnessSupport.softwareDimToRestore(
+                remembered: rememberedLevel(for: id),
+                appliedByApp: dimmedDisplays.contains(id))
             stateLock.unlock()
             captureGammaBaselineIfNeeded(id)
             guard gammaBaselines[id] != nil else { continue }
