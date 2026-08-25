@@ -14114,11 +14114,26 @@ struct MetricsTests {
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
         expect(superKeyServiceCode.contains(
-                   "if type == .leftMouseDown || type == .rightMouseDown { return .otherKey }")
+                   "if type == .leftMouseDown || type == .rightMouseDown"
+                       + " || type == .otherMouseDown { return .otherKey }")
                && superKeyServiceCode.contains("CGEventType.leftMouseDown.rawValue")
                && superKeyServiceCode.contains("CGEventType.rightMouseDown.rawValue")
+               && superKeyServiceCode.contains("CGEventType.otherMouseDown.rawValue")
                && superKeyServiceCode.range(of: "tap: .cghidEventTap") != nil,
-               "a mouse press while the super key is held carries the modifiers, stamped at the HID stage")
+               "every mouse press while the super key is held carries the modifiers, stamped at the HID stage")
+        // A mouse event carries no keycode of its own: the field reads back as
+        // 0 on one, which is the keycode for A. The read lives inside classify,
+        // below the line that answers the mouse types, so no caller holds a
+        // phantom key it could hand to something that looks keys up.
+        let keycodeReads = superKeyServiceCode
+            .components(separatedBy: ".keyboardEventKeycode").count - 1
+        let mouseAnswer = superKeyServiceCode.range(of: "type == .leftMouseDown")?.lowerBound
+        let keycodeRead = superKeyServiceCode.range(of: ".keyboardEventKeycode")?.lowerBound
+        expect(keycodeReads == 1
+               && mouseAnswer.flatMap({ answer in keycodeRead.map { answer < $0 } }) == true,
+               "a mouse press is answered before the super key ever reads a keycode")
+        expect(superKeyServiceCode.contains("?? mouseTapMissing"),
+               "a mouse tap the system refused counts as dead, so the health check rebuilds it")
 
         var noRepeatHoldState = SuperKeySupport.State()
         _ = noRepeatHoldState.decide(.triggerDown(

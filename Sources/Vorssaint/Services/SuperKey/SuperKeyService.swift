@@ -46,6 +46,10 @@ final class SuperKeyService: ObservableObject {
     private let lifecycleLock = NSLock()
     private var tap: CFMachPort?
     private var mouseTap: CFMachPort?
+    /// True when the mouse tap was asked for and the system refused it. A
+    /// refusal is otherwise indistinguishable from never having asked, and the
+    /// keyboard half would keep working with drag chords quietly still broken.
+    private var mouseTapMissing = false
     private var tapRunLoop: CFRunLoop?
     private var tapThread: Thread?
     private var shouldStopTapThread = false
@@ -105,9 +109,11 @@ final class SuperKeyService: ObservableObject {
         }
         // A tap the system disabled (Accessibility revoked and granted again)
         // never revives on its own; rebuild it instead of keeping the corpse.
+        // A mouse tap the system refused counts as dead too, or it would stay
+        // missing for the rest of the run with nothing to notice.
         let deadTap = lifecycleLock.withLock { () -> Bool in
             let keyboardDead = tap.map { !CGEvent.tapIsEnabled(tap: $0) } ?? false
-            let mouseDead = mouseTap.map { !CGEvent.tapIsEnabled(tap: $0) } ?? false
+            let mouseDead = mouseTap.map { !CGEvent.tapIsEnabled(tap: $0) } ?? mouseTapMissing
             return keyboardDead || mouseDead
         }
         if deadTap {
@@ -232,9 +238,14 @@ final class SuperKeyService: ObservableObject {
             // regardless of creation order, so consumers in this process and
             // clicks delivered to other apps both see the held modifiers.
             // Moves and drags stay out of the mask: chords are read on the
-            // press, and per-move tap work is a known stutter source.
+            // press, and per-move tap work is a known stutter source. Middle,
+            // back and forward are in: their consumers read the button number
+            // and set their own flags on anything they send on, so a stamped
+            // press changes nothing for them and every mouse shortcut is
+            // reached by the same chord as every other click.
             let mouseMask = (CGEventMask(1) << CGEventType.leftMouseDown.rawValue)
                 | (CGEventMask(1) << CGEventType.rightMouseDown.rawValue)
+                | (CGEventMask(1) << CGEventType.otherMouseDown.rawValue)
             let mouseTap = CGEvent.tapCreate(
                 tap: .cghidEventTap,
                 place: .headInsertEventTap,
@@ -249,9 +260,12 @@ final class SuperKeyService: ObservableObject {
                 userInfo: Unmanaged.passUnretained(self).toOpaque()
             )
             var mouseSource: CFRunLoopSource?
+            lifecycleLock.withLock {
+                self.mouseTap = mouseTap
+                self.mouseTapMissing = mouseTap == nil
+            }
             if let mouseTap {
                 mouseSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, mouseTap, 0)
-                lifecycleLock.withLock { self.mouseTap = mouseTap }
                 CFRunLoopAddSource(runLoop, mouseSource, .commonModes)
                 CGEvent.tapEnable(tap: mouseTap, enable: true)
             }
@@ -281,6 +295,7 @@ final class SuperKeyService: ObservableObject {
             let shouldRestart = pendingTapRestart
             tap = nil
             mouseTap = nil
+            mouseTapMissing = false
             tapRunLoop = nil
             tapThread = nil
             shouldStopTapThread = false
@@ -483,8 +498,7 @@ final class SuperKeyService: ObservableObject {
             forgetHeldKey()
             return Unmanaged.passUnretained(event)
         }
-        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        let event0 = SuperKeyService.classify(type: type, keyCode: keyCode, event: event)
+        let event0 = SuperKeyService.classify(type: type, event: event)
         let decision = stateLock.withLock { state.decide(event0) }
         // Only the key's own events say it is still down: the first press and
         // the repeats the system sends while it is held. Keys pressed meanwhile
@@ -576,10 +590,14 @@ final class SuperKeyService: ObservableObject {
         }
     }
 
-    private static func classify(type: CGEventType, keyCode: Int64, event: CGEvent) -> SuperKeySupport.Event {
+    private static func classify(type: CGEventType, event: CGEvent) -> SuperKeySupport.Event {
         // A mouse press while the key is held behaves like any other key: the
-        // modifiers ride along and the press cancels the solo action.
-        if type == .leftMouseDown || type == .rightMouseDown { return .otherKey }
+        // modifiers ride along and the press cancels the solo action. Answered
+        // above the keycode read on purpose: a mouse event carries no keycode
+        // and the field reads back as 0 on one, which is the keycode for A.
+        // Kept here, no caller can hand that phantom key to anything.
+        if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown { return .otherKey }
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         if type == .flagsChanged {
             return keyCode == SuperKeySupport.capsLockKeyCode ? .capsLock : .otherModifier
         }
