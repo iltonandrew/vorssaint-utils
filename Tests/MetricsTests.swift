@@ -1736,12 +1736,16 @@ struct MetricsTests {
         let switcherSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/Services/Switcher/AppSwitcher.swift",
             encoding: .utf8)) ?? ""
-        let switcherCode = switcherSource
+        let beginSessionBody = (switcherSource.components(separatedBy: "private func beginPendingSession")
+            .last ?? "").components(separatedBy: "\n    private func discardPendingSessionStart").first ?? ""
+        let switcherCode = beginSessionBody
             .split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
         let scopeAssign = switcherCode.range(of: "sessionScope = pending.scope")
         let startLayout = switcherCode.range(of: "recomputeLayouts(for: list)")
+        expect(!beginSessionBody.isEmpty,
+               "the App Switcher session-start ordering guard finds beginPendingSession")
         expect(scopeAssign != nil && startLayout != nil
                && scopeAssign!.lowerBound < startLayout!.lowerBound,
                "the App Switcher session scope is assigned before the session-start layout pass")

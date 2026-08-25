@@ -124,7 +124,7 @@ final class AppSwitcher: ObservableObject {
     private var sessionStartWindowID: CGWindowID?
     private var sessionSourceContext: SwitcherSourceContext?
     private var sessionShortcut: GlobalShortcut?
-    private(set) var sessionScope: SwitcherSessionScope = .allApps
+    @Published private(set) var sessionScope: SwitcherSessionScope = .allApps
     private var shiftBackNavigationHeld = false
     /// Pressing Shift mid-session already steps back once, so the Tab landing
     /// in that same physical chord must not step again — but later Tabs during
