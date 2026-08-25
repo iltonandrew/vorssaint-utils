@@ -29,6 +29,10 @@ enum WindowEnumerator {
     /// tree within the process thread budget while collapsing it into a few
     /// bounded AX batches.
     private static let maximumConcurrentQueries = 24
+    /// Generous against the messaging timeouts above even with every batch
+    /// pathologically slow; only a dispatch pool with no thread to give (#971)
+    /// can outlast it, and then the freeze is theirs, not ours.
+    private static let accessibilityQueryDeadline: TimeInterval = 5.0
 
     static func listWindows(groupByApp: Bool = UserDefaults.standard.bool(forKey: DefaultsKey.switcherMergeTabs),
                             preservingGroupedWindows: Bool = false) -> [SwitcherItem] {
@@ -431,8 +435,11 @@ enum WindowEnumerator {
         let queryQueue = OperationQueue()
         queryQueue.qualityOfService = .userInteractive
         queryQueue.maxConcurrentOperationCount = min(maximumConcurrentQueries, orderedPIDs.count)
+        let pending = DispatchGroup()
         for pid in orderedPIDs {
+            pending.enter()
             queryQueue.addOperation {
+                defer { pending.leave() }
                 guard let windows = accessibilityWindows(
                     for: pid,
                     bundleIdentifier: bundleIdentifiers[pid],
@@ -444,7 +451,18 @@ enum WindowEnumerator {
                 resultLock.unlock()
             }
         }
-        queryQueue.waitUntilAllOperationsAreFinished()
+        // The operations need dispatch-pool threads; when the pool is starved
+        // (#971 stranded 64 workers in dead waitUntilExit calls) an unbounded
+        // wait here parked the caller forever — and Dock Preview and the
+        // switcher both enumerate from the main thread, so the whole app froze
+        // with it. The AX calls themselves are bounded by messaging timeouts,
+        // so a wait this long only means no thread will ever run them: hand
+        // back whatever finished instead of the whole app.
+        if pending.wait(timeout: .now() + accessibilityQueryDeadline) == .timedOut {
+            queryQueue.cancelAllOperations()
+        }
+        resultLock.lock()
+        defer { resultLock.unlock() }
         return result
     }
 

@@ -59,18 +59,22 @@ enum BoundedProcessRunner {
             }
         }
 
+        // waitUntilExit parked on a global-pool thread has been observed never
+        // returning even after the child was dead and reaped (#971). Every lost
+        // wakeup stranded one pool worker, and frequent spawners (the nettop
+        // fallback runs ~1800 times an hour) starved the 64-thread soft limit
+        // within hours. The termination handler is delivered on Foundation's
+        // own reaper queue, so a lost exit event can cost at most this call's
+        // timeout — never a thread.
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
+
         do {
             try process.run()
         } catch {
             reader.readabilityHandler = nil
             try? reader.close()
             return Result(status: -1, output: Data(), timedOut: false)
-        }
-
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .utility).async {
-            process.waitUntilExit()
-            finished.signal()
         }
 
         var didFinish = finished.wait(timeout: .now() + max(0, timeout)) == .success

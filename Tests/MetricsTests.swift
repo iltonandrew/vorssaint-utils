@@ -9811,6 +9811,59 @@ struct MetricsTests {
         expect(timedOutProcess.timedOut && timedOutProcess.status == -1
                 && Date().timeIntervalSince(timeoutStarted) < 1.5,
                "a stalled subprocess is terminated inside its deadline")
+        // #971: waitUntilExit parked on a pool thread stranded one worker per
+        // lost exit wakeup until the 64-thread soft limit froze the app, and
+        // the window enumerator then parked the main thread on that same pool
+        // with no deadline. Exits must ride the termination handler and the
+        // enumerator's fan-out wait must expire, so a starved pool degrades to
+        // a short window list instead of a dead app.
+        let runnerSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/BoundedProcessRunner.swift",
+            encoding: .utf8)) ?? ""
+        let runnerCode = runnerSource
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        expect(!runnerCode.isEmpty && !runnerCode.contains("waitUntilExit")
+                && runnerCode.contains("terminationHandler"),
+               "subprocess exits are observed without parking a dispatch worker")
+        let enumeratorSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/Switcher/WindowEnumerator.swift",
+            encoding: .utf8)) ?? ""
+        let enumeratorCode = enumeratorSource
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        expect(!enumeratorCode.isEmpty
+                && !enumeratorCode.contains("waitUntilAllOperationsAreFinished")
+                && enumeratorCode.contains("pending.wait(timeout: .now() + accessibilityQueryDeadline)"),
+               "window enumeration cannot park its caller behind a starved pool")
+        let concurrentGroup = DispatchGroup()
+        var concurrentResults = [BoundedProcessRunner.Result?](repeating: nil, count: 8)
+        let concurrentLock = NSLock()
+        let concurrentStarted = Date()
+        for index in 0..<8 {
+            concurrentGroup.enter()
+            Thread.detachNewThread {
+                let result = BoundedProcessRunner.run(
+                    "/usr/bin/printf", ["\(index)"], timeout: 5, maxOutputBytes: 16)
+                concurrentLock.lock()
+                concurrentResults[index] = result
+                concurrentLock.unlock()
+                concurrentGroup.leave()
+            }
+        }
+        let concurrentOutputs: () -> Set<String> = {
+            concurrentLock.lock()
+            defer { concurrentLock.unlock() }
+            return Set(concurrentResults.compactMap { result in
+                result.map { String(decoding: $0.output, as: UTF8.self) }
+            })
+        }
+        expect(concurrentGroup.wait(timeout: .now() + 10) == .success
+                && Date().timeIntervalSince(concurrentStarted) < 8
+                && concurrentOutputs().count == 8,
+               "concurrent subprocess runs each exit cleanly with their own output")
 
         var networkDelta = NetworkProcessDeltaTracker(maxGap: 10)
         let baselineNetwork = [
