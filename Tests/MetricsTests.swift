@@ -14101,6 +14101,25 @@ struct MetricsTests {
         expect(soloState.decide(.triggerUp(timestamp: 4_000_000_000)) == .swallow,
                "holding it together with another modifier is not a tap either")
 
+        // Drag chords read their modifiers off the mouse-down, not off any
+        // keyboard event (#888), so the service must classify mouse presses
+        // like other keys and stamp them from a tap at the HID stage — the
+        // one place guaranteed to run before every session tap that reads
+        // the flags. The service file is not in this binary; pin the shape.
+        let superKeyServiceSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/SuperKey/SuperKeyService.swift",
+            encoding: .utf8)) ?? ""
+        let superKeyServiceCode = superKeyServiceSource
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        expect(superKeyServiceCode.contains(
+                   "if type == .leftMouseDown || type == .rightMouseDown { return .otherKey }")
+               && superKeyServiceCode.contains("CGEventType.leftMouseDown.rawValue")
+               && superKeyServiceCode.contains("CGEventType.rightMouseDown.rawValue")
+               && superKeyServiceCode.range(of: "tap: .cghidEventTap") != nil,
+               "a mouse press while the super key is held carries the modifiers, stamped at the HID stage")
+
         var noRepeatHoldState = SuperKeySupport.State()
         _ = noRepeatHoldState.decide(.triggerDown(
             isRepeat: false, hasPrimaryModifiers: false, timestamp: 6_000_000_000
