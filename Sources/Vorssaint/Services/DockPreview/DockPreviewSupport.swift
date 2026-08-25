@@ -256,6 +256,20 @@ enum DockPreviewSupport {
         max(160, tileSize * 1.5 + 60)
     }
 
+    /// How often a mouse move inside that band may reach the hit-test.
+    ///
+    /// The band gates the round-trip by place; this gates it by rate. A gaming
+    /// mouse reports 1000–8000 moves a second, and a game's HUD (a MOBA
+    /// mini-map, issue #960) sits in the band the whole match, so every one of
+    /// those moves used to buy a hit-test — measured at ~110 us against a
+    /// healthy app and bounded only by the AX timeout against a busy one. Past
+    /// a few hundred moves a second that alone outruns the main run loop the
+    /// tap is served from, and the window server starts disabling the tap for
+    /// timing out. Hover intent is measured in hundreds of milliseconds
+    /// (`openDelay`, `switchDelay`), so sampling at display rate costs the
+    /// feature nothing.
+    static let mouseMoveSampleInterval: TimeInterval = 1.0 / 60
+
     static func availability(enabled: Bool,
                              hasAccessibility: Bool,
                              hasScreenRecording: Bool,

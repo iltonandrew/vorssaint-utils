@@ -234,4 +234,34 @@ enum DockClickSupport {
             || point.x <= screenFrame.minX + fallbackMargin
             || point.x >= screenFrame.maxX - fallbackMargin
     }
+
+    /// Whether a click at `point` is one the Dock would really receive.
+    ///
+    /// The window list arrives front to back, so the first window covering the
+    /// point is what the user can see — and click — there. Finding the Dock's
+    /// strip on screen is not enough on its own: that window spans the whole
+    /// display (the icons are drawn inside it), so its bounds say yes to every
+    /// point on that screen, and a borderless-fullscreen game — the
+    /// "desktop-friendly fullscreen" Steam titles ship — sits ABOVE the Dock's
+    /// level over the same pixels while the Dock reserves no space, which left
+    /// the edge band below reading a Dock nobody could click and swallowing
+    /// mini-map clicks (issue #960). Whatever is drawn on top owns the click.
+    static func dockOwnsPoint(_ point: CGPoint,
+                              windows: [MouseAppExceptionSupport.Window],
+                              dockProcessID: Int32,
+                              dockLayer: Int,
+                              ownProcessID: Int32,
+                              edgeSlop: CGFloat = 8) -> Bool {
+        for window in windows where window.alpha > 0 && window.processID != ownProcessID {
+            let isDock = window.processID == dockProcessID && window.layer == dockLayer
+            // Small negative inset for the strip only: the pointer clamps to
+            // the screen, but event coordinates on the very edge can land
+            // fractionally outside it. Granting the same slop to the window in
+            // front would let it steal a click it does not cover.
+            let frame = isDock ? window.frame.insetBy(dx: -edgeSlop, dy: -edgeSlop) : window.frame
+            guard frame.contains(point) else { continue }
+            return isDock
+        }
+        return false
+    }
 }

@@ -7870,6 +7870,77 @@ struct MetricsTests {
                                                   visibleFrame: CGRect(x: 0, y: 24, width: 1512, height: 958)),
                "dock strip falls back to an edge band when auto-hide reserves nothing")
 
+        // The edge band above is only a pre-filter; what decides is whether the
+        // Dock is the thing drawn at the click. Its strip window spans the whole
+        // display, so its bounds alone say yes everywhere (issue #960).
+        let dockStripWindow = MouseAppExceptionSupport.Window(frame: dockScreen, layer: 20,
+                                                              processID: 1267)
+        let gameWindow = MouseAppExceptionSupport.Window(frame: dockScreen, layer: 24,
+                                                         processID: 4242)
+        let miniMapClick = CGPoint(x: 90, y: 930)
+        func dockOwns(_ windows: [MouseAppExceptionSupport.Window],
+                      _ point: CGPoint = CGPoint(x: 700, y: 960)) -> Bool {
+            DockClickSupport.dockOwnsPoint(point, windows: windows, dockProcessID: 1267,
+                                           dockLayer: 20, ownProcessID: 501)
+        }
+        expect(dockOwns([dockStripWindow]),
+               "a revealed Dock strip owns a click on the Dock")
+        expect(!dockOwns([]),
+               "a parked auto-hide Dock is missing from the list and owns nothing")
+        expect(dockOwns([dockStripWindow,
+                         MouseAppExceptionSupport.Window(frame: dockScreen, layer: 0,
+                                                         processID: 4242)]),
+               "an ordinary window under the Dock never takes the Dock's click")
+        expect(!dockOwns([gameWindow, dockStripWindow], miniMapClick),
+               "a borderless-fullscreen game drawn over the Dock keeps its mini-map clicks")
+        expect(dockOwns([MouseAppExceptionSupport.Window(frame: dockScreen, layer: 24,
+                                                         processID: 501),
+                         dockStripWindow]),
+               "this app's own panels never stand in for the window over the Dock")
+        expect(dockOwns([MouseAppExceptionSupport.Window(frame: dockScreen, layer: 24, alpha: 0,
+                                                         processID: 4242),
+                         dockStripWindow]),
+               "an invisible window over the Dock blocks nothing")
+        expect(!dockOwns([MouseAppExceptionSupport.Window(frame: dockScreen, layer: 25,
+                                                          processID: 1267),
+                          dockStripWindow]),
+               "a Dock-owned window off the Dock's layer is not the strip")
+        expect(!dockOwns([MouseAppExceptionSupport.Window(frame: CGRect(x: 0, y: 0, width: 1512,
+                                                                        height: 900),
+                                                          layer: 20, processID: 1267)]),
+               "a Dock on another display owns no click on this one")
+        expect(dockOwns([MouseAppExceptionSupport.Window(frame: CGRect(x: 0, y: 0, width: 1512,
+                                                                       height: 955),
+                                                         layer: 20, processID: 1267)]),
+               "a click a few points past the strip edge still reaches the Dock")
+        expect(!dockOwns([gameWindow,
+                          MouseAppExceptionSupport.Window(frame: CGRect(x: 0, y: 0, width: 1512,
+                                                                        height: 955),
+                                                          layer: 20, processID: 1267)]),
+               "a window in front wins even where the strip's edge slop would reach")
+
+        // Both fixes live in tap callbacks, outside the test binary: pin the
+        // shape of the gates the services install (issue #960).
+        let dockClickTapSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/DockClick/DockClickService.swift",
+            encoding: .utf8)) ?? ""
+        expect(dockClickTapSource.contains("DockClickSupport.dockOwnsPoint(point,"),
+               "the Dock click tap gates on the Dock owning the click point")
+        expect(dockClickTapSource.contains("ownProcessID: getpid()"),
+               "the Dock click tap discounts this app's own windows over the Dock")
+        expect(DockPreviewSupport.mouseMoveSampleInterval > 0
+                   && DockPreviewSupport.mouseMoveSampleInterval <= 1.0 / 60,
+               "the Dock preview mouse-move sampler runs at display rate or faster")
+        expect(DockPreviewSupport.mouseMoveSampleInterval < DockPreviewSupport.switchDelay,
+               "sampling is finer than the shortest hover intent it feeds")
+        let dockPreviewTapSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/DockPreview/DockPreviewService.swift",
+            encoding: .utf8)) ?? ""
+        expect(dockPreviewTapSource.contains("guard admitMouseMove(axPoint: point) else"),
+               "the Dock preview tap samples mouse moves before the hit-test path")
+        expect(dockPreviewTapSource.contains("DockPreviewSupport.mouseMoveSampleInterval"),
+               "the sampler reads its interval from the shared constant")
+
         expect(MiddleClickSupport.actionForClick(fingerCount: 3, frameAge: 0.05, settledFor: 0.2,
                                                  sinceLastTransformEnd: nil,
                                                  systemDragGestureEnabled: false) == .transform,
