@@ -46,10 +46,22 @@ final class SuperKeyService: ObservableObject {
     private let lifecycleLock = NSLock()
     private var tap: CFMachPort?
     private var mouseTap: CFMachPort?
-    /// True when the mouse tap was asked for and the system refused it. A
+    /// How many times in a row the mouse tap was asked for and refused. A
     /// refusal is otherwise indistinguishable from never having asked, and the
     /// keyboard half would keep working with drag chords quietly still broken.
-    private var mouseTapMissing = false
+    /// Only the first one counts as a dead tap: the cure is a full rebuild, and
+    /// that takes the healthy keyboard tap down with it, dropping held-key
+    /// state and letting events through untapped for the gap. A system that
+    /// refuses once refuses the retry too, so one is all it is worth — after
+    /// that the mouse half stays broken and the keyboard half is left alone.
+    /// Back to zero only when a tap is actually created, so a refusal after a
+    /// working stretch is a new episode with its own single retry.
+    private var mouseTapRefusals = 0
+    /// The presses the mouse tap watches, one list for both the tap mask and
+    /// classify, so a button added later is added in one place.
+    private static let mouseDownTypes: [CGEventType] = [
+        .leftMouseDown, .rightMouseDown, .otherMouseDown,
+    ]
     private var tapRunLoop: CFRunLoop?
     private var tapThread: Thread?
     private var shouldStopTapThread = false
@@ -110,10 +122,13 @@ final class SuperKeyService: ObservableObject {
         // A tap the system disabled (Accessibility revoked and granted again)
         // never revives on its own; rebuild it instead of keeping the corpse.
         // A mouse tap the system refused counts as dead too, or it would stay
-        // missing for the rest of the run with nothing to notice.
+        // missing for the rest of the run with nothing to notice — but only
+        // the first refusal does, or every sync from here on would tear the
+        // working keyboard tap down to ask a question already answered.
         let deadTap = lifecycleLock.withLock { () -> Bool in
             let keyboardDead = tap.map { !CGEvent.tapIsEnabled(tap: $0) } ?? false
-            let mouseDead = mouseTap.map { !CGEvent.tapIsEnabled(tap: $0) } ?? mouseTapMissing
+            let mouseDead = mouseTap.map { !CGEvent.tapIsEnabled(tap: $0) }
+                ?? (mouseTapRefusals == 1)
             return keyboardDead || mouseDead
         }
         if deadTap {
@@ -243,9 +258,9 @@ final class SuperKeyService: ObservableObject {
             // and set their own flags on anything they send on, so a stamped
             // press changes nothing for them and every mouse shortcut is
             // reached by the same chord as every other click.
-            let mouseMask = (CGEventMask(1) << CGEventType.leftMouseDown.rawValue)
-                | (CGEventMask(1) << CGEventType.rightMouseDown.rawValue)
-                | (CGEventMask(1) << CGEventType.otherMouseDown.rawValue)
+            let mouseMask = Self.mouseDownTypes.reduce(CGEventMask(0)) {
+                $0 | (CGEventMask(1) << $1.rawValue)
+            }
             let mouseTap = CGEvent.tapCreate(
                 tap: .cghidEventTap,
                 place: .headInsertEventTap,
@@ -262,7 +277,7 @@ final class SuperKeyService: ObservableObject {
             var mouseSource: CFRunLoopSource?
             lifecycleLock.withLock {
                 self.mouseTap = mouseTap
-                self.mouseTapMissing = mouseTap == nil
+                self.mouseTapRefusals = mouseTap == nil ? self.mouseTapRefusals + 1 : 0
             }
             if let mouseTap {
                 mouseSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, mouseTap, 0)
@@ -295,7 +310,9 @@ final class SuperKeyService: ObservableObject {
             let shouldRestart = pendingTapRestart
             tap = nil
             mouseTap = nil
-            mouseTapMissing = false
+            // mouseTapRefusals deliberately stays: it has to outlive the
+            // teardown its own count asked for, or the rebuild it triggers
+            // would clear the count and ask again for the rest of the run.
             tapRunLoop = nil
             tapThread = nil
             shouldStopTapThread = false
@@ -596,7 +613,7 @@ final class SuperKeyService: ObservableObject {
         // above the keycode read on purpose: a mouse event carries no keycode
         // and the field reads back as 0 on one, which is the keycode for A.
         // Kept here, no caller can hand that phantom key to anything.
-        if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown { return .otherKey }
+        if mouseDownTypes.contains(type) { return .otherKey }
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         if type == .flagsChanged {
             return keyCode == SuperKeySupport.capsLockKeyCode ? .capsLock : .otherModifier
