@@ -97,8 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             guard let item = self?.statusController.statusItem, item.isVisible,
                   let window = self?.statusController.button?.window else { return nil }
             let frame = window.frame
-            guard StatusItemAnchorSupport.isTrustworthyStatusFrame(
-                frame, screenFrames: NSScreen.screens.map(\.frame)) else { return nil }
+            guard StatusItemAnchorSupport.isTrustworthyStatusFrame(frame) else { return nil }
             return frame
         }
 
@@ -531,8 +530,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// itself parks the window out of the visible area) the anchor takes over.
     private func frameStillDescribesMenuBar(_ anchor: PanelAnchor) -> Bool {
         guard let frame = anchor.button?.window?.frame else { return false }
-        return StatusItemAnchorSupport.isTrustworthyStatusFrame(
-            frame, screenFrames: NSScreen.screens.map(\.frame))
+        return StatusItemAnchorSupport.isTrustworthyStatusFrame(frame)
     }
 
     /// The spot the panel must hold while it is open, decided at the moment it
@@ -544,7 +542,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let screen = statusScreen(for: button)
         let statusFrame = button.window?.frame
         let frameIsSound = statusFrame.map {
-            StatusItemAnchorSupport.isTrustworthyStatusFrame($0, screenFrames: NSScreen.screens.map(\.frame))
+            StatusItemAnchorSupport.isTrustworthyStatusFrame($0)
         } ?? false
         if frameIsSound, statusFrame != nil {
             // Where the popover has just been placed is the anchor: with a

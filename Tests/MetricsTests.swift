@@ -2784,6 +2784,19 @@ struct MetricsTests {
                                                                  screenFrames: attachedScreens),
                "a frame down at the bottom of a screen is not a menu bar item")
 
+        // A screen showing a fullscreen window reserves no menu bar: its
+        // visible area is the whole frame. The band is a fixed thickness off
+        // the screen's own top edge, so an item revealed on hover still counts;
+        // a band measured as `frame.maxY - visibleFrame.maxY` would collapse to
+        // nothing here and decline the icon while it is visible and clickable.
+        let fullscreenScreen = CGRect(x: 0, y: 0, width: 1470, height: 956)
+        let fullscreenVisibleFrame = fullscreenScreen
+        expect(StatusItemAnchorSupport.menuBarBand > fullscreenScreen.maxY - fullscreenVisibleFrame.maxY,
+               "the menu bar band does not shrink to what a fullscreen screen reserves")
+        expect(StatusItemAnchorSupport.isTrustworthyStatusFrame(CGRect(x: 1135, y: 919, width: 38, height: 37),
+                                                                screenFrames: [fullscreenScreen]),
+               "a status item revealed over a fullscreen window is a trustworthy anchor")
+
         // These AppKit owners are not part of the pure-helper test binary, so
         // pin that neither caller can consume a parked status-item frame.
         let statusAnchorAppDelegateSource = (try? String(
@@ -2794,15 +2807,18 @@ struct MetricsTests {
                 .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
                 .joined(separator: "\n")
         }
+        // Sliced at the closing brace of the closure/function itself, so the
+        // slice can never run past it into an unrelated body that happens to
+        // carry the same words.
         let shelfProviderCode = stripCommentLines((statusAnchorAppDelegateSource
             .components(separatedBy: "ShelfService.shared.statusItemFrameProvider =").last ?? "")
-            .components(separatedBy: "\n        setUpPopover()").first ?? "")
+            .components(separatedBy: "\n        }").first ?? "")
         let statusControllerSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/App/StatusItemController.swift",
             encoding: .utf8)) ?? ""
         let statusHitTestCode = stripCommentLines((statusControllerSource
             .components(separatedBy: "func containsStatusItem(at screenPoint: NSPoint) -> Bool {").last ?? "")
-            .components(separatedBy: "\n    init()").first ?? "")
+            .components(separatedBy: "\n    }").first ?? "")
         let statusFrameCall = "StatusItemAnchorSupport.isTrustworthyStatusFrame("
         expect(shelfProviderCode.contains("guard \(statusFrameCall)") && shelfProviderCode.contains("return nil"),
                "the Shelf provider rejects an untrustworthy status-item frame")
