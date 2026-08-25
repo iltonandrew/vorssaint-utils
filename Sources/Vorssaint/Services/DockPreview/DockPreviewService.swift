@@ -343,7 +343,15 @@ final class DockPreviewService: ObservableObject {
         // callback already runs on the main thread and may read panel state
         // and settle those moves synchronously for free.
         if type == .mouseMoved {
-            if discardFarMouseMove(axPoint: point) { return Unmanaged.passUnretained(event) }
+            if discardFarMouseMove(axPoint: point) {
+                // A move far from the Dock is proof the cursor left, so it also
+                // retires any in-band point still waiting its turn: sweeping
+                // past the strip and stopping just outside would otherwise let
+                // the held point outlive the moves that disproved it and arm a
+                // hover for an icon the cursor is no longer near.
+                cancelPendingMove()
+                return Unmanaged.passUnretained(event)
+            }
             // Inside the strip the full handler pays an Accessibility
             // hit-test, which no mouse polling at 1000 Hz or more can be
             // allowed to drive one-for-one (issue #960).
