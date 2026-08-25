@@ -1716,10 +1716,35 @@ struct MetricsTests {
                "App Switcher keeps shortcut hints visible by default and carries the choice in backups")
         expect(SwitcherSupport.usesIconRowLayout(iconRowMode: false, simpleMode: true),
                "App Switcher simple mode always uses the app icon row")
-        expect(SwitcherSupport.usesWindowRow(simpleMode: true, mergeWindowsByApp: false)
-               && !SwitcherSupport.usesWindowRow(simpleMode: true, mergeWindowsByApp: true)
-               && !SwitcherSupport.usesWindowRow(simpleMode: false, mergeWindowsByApp: false),
-               "App Switcher simple mode lists windows unless one-entry-per-app is enabled")
+        expect(SwitcherSupport.usesWindowRow(simpleMode: true,
+                                             mergeWindowsByApp: false,
+                                             sessionScope: .allApps)
+               && !SwitcherSupport.usesWindowRow(simpleMode: true,
+                                                  mergeWindowsByApp: true,
+                                                  sessionScope: .allApps)
+               && SwitcherSupport.usesWindowRow(simpleMode: true,
+                                                 mergeWindowsByApp: true,
+                                                 sessionScope: .frontmostApp)
+               && !SwitcherSupport.usesWindowRow(simpleMode: false,
+                                                  mergeWindowsByApp: false,
+                                                  sessionScope: .allApps),
+               "App Switcher groups all-app sessions but keeps window-scoped simple sessions per-window")
+        // The session-start layout pass reads usesWindowRow, which now depends
+        // on the session scope; teardown resets the scope to .allApps, so the
+        // scope must be assigned before the layout pass or a window-scoped
+        // panel is sized for the grouped layout on its first frame.
+        let switcherSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/Switcher/AppSwitcher.swift",
+            encoding: .utf8)) ?? ""
+        let switcherCode = switcherSource
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        let scopeAssign = switcherCode.range(of: "sessionScope = pending.scope")
+        let startLayout = switcherCode.range(of: "recomputeLayouts(for: list)")
+        expect(scopeAssign != nil && startLayout != nil
+               && scopeAssign!.lowerBound < startLayout!.lowerBound,
+               "the App Switcher session scope is assigned before the session-start layout pass")
         expect(!SwitcherSupport.usesAppGroupsForMainShortcut(iconRowLayout: true,
                                                               windowRow: true)
                && SwitcherSupport.usesAppGroupsForMainShortcut(iconRowLayout: true,
