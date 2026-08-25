@@ -1736,8 +1736,16 @@ struct MetricsTests {
         let switcherSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/Services/Switcher/AppSwitcher.swift",
             encoding: .utf8)) ?? ""
-        let beginSessionBody = (switcherSource.components(separatedBy: "private func beginPendingSession")
-            .last ?? "").components(separatedBy: "\n    private func discardPendingSessionStart").first ?? ""
+        // Ends on whatever declaration comes next rather than naming the
+        // neighbour: a rename would find no separator, leave the slice running
+        // to end of file, and quietly restore the whole-file search this
+        // replaced — a failure that makes the slice bigger, so an empty check
+        // cannot see it. Hence the count assertion below.
+        let beginSessionParts = (switcherSource.components(separatedBy: "private func beginPendingSession")
+            .last ?? "").components(separatedBy: "\n    private func ")
+        let beginSessionBody = beginSessionParts.first ?? ""
+        expect(beginSessionParts.count > 1,
+               "the App Switcher ordering guard finds the end of beginPendingSession")
         let switcherCode = beginSessionBody
             .split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
