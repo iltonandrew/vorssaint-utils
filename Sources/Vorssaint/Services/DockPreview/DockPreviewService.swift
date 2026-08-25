@@ -29,6 +29,7 @@ final class DockPreviewService: ObservableObject {
     private var runLoopSource: CFRunLoopSource?
     private var settingsTimer: Timer?
     private var dockVisibilityTimer: Timer?
+    private var reattachGraceFrame: CGRect?
     private var pendingHover: PendingHover?
     private var pendingHide: DispatchWorkItem?
     private var lastAXMousePoint: CGPoint?
@@ -466,6 +467,13 @@ final class DockPreviewService: ObservableObject {
     private func currentZone(point: CGPoint, axPoint: CGPoint) -> Zone {
         if activePanelFrame?.insetBy(dx: -DockPreviewSupport.panelStayMargin,
                                      dy: -DockPreviewSupport.panelStayMargin).contains(point) == true {
+            reattachGraceFrame = nil
+            return .panel
+        }
+        // The panel moved out from under a pointer that never left it; where it
+        // used to be still counts until the pointer reaches where it is now.
+        if reattachGraceFrame?.insetBy(dx: -DockPreviewSupport.panelStayMargin,
+                                       dy: -DockPreviewSupport.panelStayMargin).contains(point) == true {
             return .panel
         }
         // Hit-test the Dock before the corridor so landing on a neighbouring icon
@@ -662,6 +670,7 @@ final class DockPreviewService: ObservableObject {
         currentSessionPID = nil
         isPinned = false
         activePanelFrame = nil
+        reattachGraceFrame = nil
         activeCorridor = nil
         activeIconFrame = nil
         activeDockPreferences = nil
@@ -877,13 +886,22 @@ final class DockPreviewService: ObservableObject {
               let frame = activePanelFrame,
               let preferences = activeDockPreferences
         else { return }
-        let edgeFrame = DockPreviewSupport.panelFrameWhenDockHidden(
+        let edgeFrame = clampedPanelFrame(DockPreviewSupport.panelFrameWhenDockHidden(
             frame,
             screenVisibleFrame: visibleFrameForScreen(containing: frame),
             orientation: preferences.orientation
-        )
+        ))
+        // The pointer is resting on the panel and has not moved, but the panel
+        // is about to slide out from under it by the Dock's thickness — far
+        // more than panelStayMargin. The frame it was resting on keeps counting
+        // as the panel until the pointer reaches the new one, so the preview
+        // this repositioning exists to keep usable does not dismiss itself.
+        reattachGraceFrame = frame
         activePanelFrame = edgeFrame
-        panel.setFrame(edgeFrame, display: true, animate: true)
+        // Not animated: this service's event tap is served by the main run
+        // loop, and setFrame(display:animate:) blocks it for the animation's
+        // duration, queueing every mouse event behind a one-shot jump.
+        panel.setFrame(edgeFrame, display: true)
     }
 
     /// Whether the Dock's layer-20 strip is currently on screen. With

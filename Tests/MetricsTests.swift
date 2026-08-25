@@ -7754,6 +7754,17 @@ struct MetricsTests {
                && dockPreviewServiceCode.contains("CGWindowListCopyWindowInfo(.optionOnScreenOnly")
                && dockPreviewServiceCode.contains("DockPreviewSupport.panelFrameWhenDockHidden("),
                "an entered auto-hide Dock Preview follows the Dock's live window to the vacated edge")
+        // The jump is the Dock's thickness, an order of magnitude past
+        // panelStayMargin, so a pointer that never moved would otherwise read as
+        // outside the panel on its next twitch and dismiss the preview.
+        expect(dockPreviewServiceCode.contains("reattachGraceFrame = frame")
+               && dockPreviewServiceCode.contains("reattachGraceFrame?.insetBy("),
+               "the frame a reattached Dock Preview left behind keeps counting until the pointer reaches the new one")
+        // The tap this service owns is served by the main run loop, so an
+        // animated setFrame would queue every mouse event behind the slide.
+        expect(!dockPreviewServiceCode.contains("setFrame(edgeFrame, display: true, animate: true)")
+               && dockPreviewServiceCode.contains("clampedPanelFrame(DockPreviewSupport.panelFrameWhenDockHidden("),
+               "a reattached Dock Preview lands clamped, without animating the main run loop")
         let corridor = DockPreviewSupport.hoverCorridor(iconFrame: iconBottom,
                                                         panelFrame: bottomFrame,
                                                         orientation: .bottom)
