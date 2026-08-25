@@ -96,7 +96,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         ShelfService.shared.statusItemFrameProvider = { [weak self] in
             guard let item = self?.statusController.statusItem, item.isVisible,
                   let window = self?.statusController.button?.window else { return nil }
-            return window.frame
+            let frame = window.frame
+            guard StatusItemAnchorSupport.isTrustworthyStatusFrame(
+                frame, screenFrames: NSScreen.screens.map(\.frame)) else { return nil }
+            return frame
         }
 
         setUpPopover()
