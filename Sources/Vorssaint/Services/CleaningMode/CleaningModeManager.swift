@@ -41,9 +41,16 @@ final class CleaningModeManager: ObservableObject {
     private var screenObserver: NSObjectProtocol?
 
     /// The unlock-gesture state machine (pure, unit-tested separately).
+    /// The 6s press window forgives hesitant, deliberate presses — at 2s a user
+    /// pressing Escape slower than once per two seconds could never unlock
+    /// (progress restarted at 1 on every press). The window's one remaining job
+    /// is rejecting five isolated Esc-only contacts spread across a long wipe:
+    /// other keys reset the count and auto-repeat never counts, but a cloth can
+    /// strike Escape alone. Widening to 6s weakens that guard on purpose —
+    /// a gesture a deliberate user cannot complete protects nothing.
     private lazy var unlock = CleaningUnlockCounter(requiredKeyCode: Self.escapeKeyCode,
                                                     threshold: unlockThreshold,
-                                                    pressWindow: 2.0)
+                                                    pressWindow: 6.0)
 
     private init() {}
 

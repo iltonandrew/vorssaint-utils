@@ -10674,6 +10674,20 @@ struct MetricsTests {
         let afterReset2 = cleared.registerKeyDown(code: escapeKeyCode, time: 0.4, isRepeat: false)
         expect(!afterReset2 && cleared.progress == 1, "after reset Escape starts fresh at 1")
 
+        // The counters above build their own windows, so nothing else here
+        // fails if the shipped constant regresses. Pin it at the source: the
+        // 2s window made the gesture impossible for anyone pressing Escape
+        // slower than once per two seconds (#697).
+        let cleaningSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/CleaningMode/CleaningModeManager.swift",
+            encoding: .utf8)) ?? ""
+        let cleaningCode = cleaningSource
+            .components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        expect(!cleaningCode.isEmpty && cleaningCode.contains("pressWindow: 6.0"),
+               "the shipped unlock counter keeps the forgiving 6s press window")
+
         func systemKeyData(keyCode: Int, state: Int, repeatFlag: Bool = false) -> Int {
             Int((UInt32(keyCode) << 16) | (UInt32(state) << 8) | (repeatFlag ? 1 : 0))
         }
