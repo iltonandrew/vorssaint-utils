@@ -246,6 +246,11 @@ enum DockClickSupport {
     /// level over the same pixels while the Dock reserves no space, which left
     /// the edge band below reading a Dock nobody could click and swallowing
     /// mini-map clicks (issue #960). Whatever is drawn on top owns the click.
+    /// This conservatively also treats click-through overlays from other apps
+    /// (screen dimmers, colour-temperature tools and annotation HUDs) as
+    /// occluding the Dock. The window list exposes no `ignoresMouseEvents`
+    /// property, so it cannot distinguish those overlays from a real
+    /// fullscreen window without risking the original swallowed-click bug.
     static func dockOwnsPoint(_ point: CGPoint,
                               windows: [MouseAppExceptionSupport.Window],
                               dockProcessID: Int32,

@@ -7893,6 +7893,10 @@ struct MetricsTests {
                "an ordinary window under the Dock never takes the Dock's click")
         expect(!dockOwns([gameWindow, dockStripWindow], miniMapClick),
                "a borderless-fullscreen game drawn over the Dock keeps its mini-map clicks")
+        expect(!dockOwns([MouseAppExceptionSupport.Window(frame: dockScreen, layer: 24,
+                                                          processID: 7331),
+                          dockStripWindow]),
+               "a click-through overlay conservatively occludes the Dock")
         expect(dockOwns([MouseAppExceptionSupport.Window(frame: dockScreen, layer: 24,
                                                          processID: 501),
                          dockStripWindow]),
@@ -7905,7 +7909,7 @@ struct MetricsTests {
                                                           processID: 1267),
                           dockStripWindow]),
                "a Dock-owned window off the Dock's layer is not the strip")
-        expect(!dockOwns([MouseAppExceptionSupport.Window(frame: CGRect(x: 0, y: 0, width: 1512,
+        expect(!dockOwns([MouseAppExceptionSupport.Window(frame: CGRect(x: 1512, y: 0, width: 1512,
                                                                         height: 900),
                                                           layer: 20, processID: 1267)]),
                "a Dock on another display owns no click on this one")
