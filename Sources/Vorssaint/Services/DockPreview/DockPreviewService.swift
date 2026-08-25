@@ -28,6 +28,7 @@ final class DockPreviewService: ObservableObject {
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var settingsTimer: Timer?
+    private var dockVisibilityTimer: Timer?
     private var pendingHover: PendingHover?
     private var pendingHide: DispatchWorkItem?
     private var lastAXMousePoint: CGPoint?
@@ -395,6 +396,7 @@ final class DockPreviewService: ObservableObject {
             switch currentZone(point: point, axPoint: axPoint) {
             case .panel:
                 hasEnteredPanel = true
+                startDockVisibilityTimerIfNeeded()
                 cancelPendingHide()
                 cancelPendingHover()
             case .openingPath:
@@ -641,6 +643,8 @@ final class DockPreviewService: ObservableObject {
         cancelPendingHover()
         cancelPendingHide()
         WindowPreviewProvider.shared.cancel()
+        dockVisibilityTimer?.invalidate()
+        dockVisibilityTimer = nil
         tearDownVisuals()
         isPinned = false
         panel?.orderOut(nil)
@@ -837,6 +841,62 @@ final class DockPreviewService: ObservableObject {
         )
         panel.setFrame(frame, display: true, animate: true)
         panel.contentViewController?.view.layoutSubtreeIfNeeded()
+    }
+
+    /// The Dock owns its auto-hide reveal region; another process cannot extend
+    /// it to cover this panel. Once the cursor reaches the panel, watch the
+    /// Dock's real on-screen window and pull the preview to the vacated edge if
+    /// the Dock slides away, so the interaction remains attached and usable.
+    private func startDockVisibilityTimerIfNeeded() {
+        guard dockVisibilityTimer == nil,
+              activeDockPreferences?.autohide == true
+        else { return }
+
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] timer in
+            guard let self,
+                  self.isVisible,
+                  self.hasEnteredPanel,
+                  let dockPID = self.dockProcessID()
+            else {
+                timer.invalidate()
+                self?.dockVisibilityTimer = nil
+                return
+            }
+            guard !Self.dockIsRevealed(dockPID: dockPID) else { return }
+            self.reattachPanelToScreenEdge()
+            timer.invalidate()
+            self.dockVisibilityTimer = nil
+        }
+        timer.tolerance = 0.02
+        RunLoop.main.add(timer, forMode: .common)
+        dockVisibilityTimer = timer
+    }
+
+    private func reattachPanelToScreenEdge() {
+        guard let panel,
+              let frame = activePanelFrame,
+              let preferences = activeDockPreferences
+        else { return }
+        let edgeFrame = DockPreviewSupport.panelFrameWhenDockHidden(
+            frame,
+            screenVisibleFrame: visibleFrameForScreen(containing: frame),
+            orientation: preferences.orientation
+        )
+        activePanelFrame = edgeFrame
+        panel.setFrame(edgeFrame, display: true, animate: true)
+    }
+
+    /// Whether the Dock's layer-20 strip is currently on screen. With
+    /// auto-hide, WindowServer removes this window from the on-screen list once
+    /// its slide-out completes.
+    private static func dockIsRevealed(dockPID: pid_t) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID)
+                as? [[String: Any]] else { return true }
+        let dockLevel = Int(CGWindowLevelForKey(.dockWindow))
+        return list.contains { window in
+            (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == dockPID
+                && (window[kCGWindowLayer as String] as? Int) == dockLevel
+        }
     }
 
     private func clampedPanelFrame(_ frame: CGRect) -> CGRect {

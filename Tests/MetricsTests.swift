@@ -7728,6 +7728,32 @@ struct MetricsTests {
                                                        orientation: .right)
         expect(rightFrame.maxX < 1360,
                "Dock Preview right panel sits to the left of the Dock")
+        let hiddenLeftFrame = DockPreviewSupport.panelFrameWhenDockHidden(
+            leftFrame, screenVisibleFrame: screen, orientation: .left)
+        expect(hiddenLeftFrame.minX == screen.minX + DockPreviewSupport.edgePadding
+               && hiddenLeftFrame.minY == leftFrame.minY,
+               "Dock Preview fills a left auto-hidden Dock's vacated edge without jumping vertically")
+        let hiddenRightFrame = DockPreviewSupport.panelFrameWhenDockHidden(
+            rightFrame, screenVisibleFrame: screen, orientation: .right)
+        expect(hiddenRightFrame.maxX == screen.maxX - DockPreviewSupport.edgePadding
+               && hiddenRightFrame.minY == rightFrame.minY,
+               "Dock Preview fills a right auto-hidden Dock's vacated edge without jumping vertically")
+        let hiddenBottomFrame = DockPreviewSupport.panelFrameWhenDockHidden(
+            bottomFrame, screenVisibleFrame: screen, orientation: .bottom)
+        expect(hiddenBottomFrame.minY == screen.minY + DockPreviewSupport.edgePadding
+               && hiddenBottomFrame.minX == bottomFrame.minX,
+               "Dock Preview fills a bottom auto-hidden Dock's vacated edge without jumping horizontally")
+        let dockPreviewServiceSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/DockPreview/DockPreviewService.swift",
+            encoding: .utf8)) ?? ""
+        let dockPreviewServiceCode = dockPreviewServiceSource
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        expect(dockPreviewServiceCode.contains("startDockVisibilityTimerIfNeeded()")
+               && dockPreviewServiceCode.contains("CGWindowListCopyWindowInfo(.optionOnScreenOnly")
+               && dockPreviewServiceCode.contains("DockPreviewSupport.panelFrameWhenDockHidden("),
+               "an entered auto-hide Dock Preview follows the Dock's live window to the vacated edge")
         let corridor = DockPreviewSupport.hoverCorridor(iconFrame: iconBottom,
                                                         panelFrame: bottomFrame,
                                                         orientation: .bottom)

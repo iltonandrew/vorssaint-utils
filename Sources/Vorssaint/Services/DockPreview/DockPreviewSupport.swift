@@ -317,6 +317,25 @@ enum DockPreviewSupport {
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
+    /// Pulls a preview back to the screen edge after an auto-hidden Dock slides
+    /// away. The other axis stays put so the panel does not jump away from the
+    /// app icon the user chose.
+    static func panelFrameWhenDockHidden(_ panelFrame: CGRect,
+                                         screenVisibleFrame: CGRect,
+                                         orientation: DockPreviewOrientation,
+                                         padding: CGFloat = edgePadding) -> CGRect {
+        var frame = panelFrame
+        switch orientation {
+        case .bottom:
+            frame.origin.y = screenVisibleFrame.minY + padding
+        case .left:
+            frame.origin.x = screenVisibleFrame.minX + padding
+        case .right:
+            frame.origin.x = screenVisibleFrame.maxX - panelFrame.width - padding
+        }
+        return frame
+    }
+
     /// Whether the panel draws a header row. A hovered panel has no use for
     /// one: it named the app whose Dock icon the pointer is resting on, and
     /// carried steppers for walking windows the pointer is already on top of.
