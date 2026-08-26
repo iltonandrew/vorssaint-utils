@@ -1625,7 +1625,7 @@ enum Defaults {
             // has no bundle identifier (issue #1009), and a file name may
             // legally end in a space. Trimming one would store a spelling the
             // running program never reports, so only an identifier is trimmed.
-            let bundleID = raw.hasPrefix("/")
+            let bundleID = MouseAppExceptionSupport.isExecutablePathIdentity(raw)
                 ? raw
                 : raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !bundleID.isEmpty, !seen.contains(bundleID) else { continue }

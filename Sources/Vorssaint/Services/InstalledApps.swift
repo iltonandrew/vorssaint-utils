@@ -29,9 +29,10 @@ enum InstalledApps {
 
     /// A list entry can also be the path of a program that is not packaged as
     /// an app, which has no bundle identifier to be named by (issue #1009).
-    /// A bundle identifier never starts with a slash, so the two never collide.
     private static func fileURL(forIdentity identity: String) -> URL? {
-        guard identity.hasPrefix("/") else { return url(for: identity) }
+        guard MouseAppExceptionSupport.isExecutablePathIdentity(identity) else {
+            return url(for: identity)
+        }
         return URL(fileURLWithPath: identity)
     }
 

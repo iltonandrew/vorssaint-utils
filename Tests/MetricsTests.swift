@@ -14773,9 +14773,33 @@ struct MetricsTests {
         expect(resolvedMatchSites.count == 1 && rawMatchSites.isEmpty,
                "the taps read an executable path only through the support enum: "
                    + "\(resolvedMatchSites) \(rawMatchSites)")
-        expect(!matcherLines.filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-                .joined(separator: "\n").contains("trimmingCharacters"),
+        let matcherBody = matcherLines
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        expect(!matcherBody.isEmpty && !matcherBody.contains("trimmingCharacters"),
                "the exception list is sanitized through the one sanitizer, never beside it")
+
+        // The leading-slash test IS the rule that tells a stored path from a
+        // bundle identifier. A second spelling of it drifts the day the rule
+        // learns a new shape — a ~ path, a file URL — so every file that
+        // handles an identity asks isExecutablePathIdentity instead of
+        // re-testing the prefix.
+        var slashRuleSites: [String] = []
+        for file in ["Services/MouseExceptions/MouseAppExceptionSupport.swift",
+                     "Services/InstalledApps.swift",
+                     "Core/Defaults.swift"] {
+            let ruleLines = ((try? String(contentsOfFile: "Sources/Vorssaint/\(file)",
+                                          encoding: .utf8)) ?? "").components(separatedBy: "\n")
+            if ruleLines.count <= 1 { slashRuleSites.append("\(file) unreadable") }
+            for (index, line) in ruleLines.enumerated()
+            where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+                    && line.contains("hasPrefix(\"/\")") {
+                slashRuleSites.append("\(file):\(index + 1)")
+            }
+        }
+        expect(slashRuleSites.count == 1
+                && slashRuleSites[0].hasPrefix("Services/MouseExceptions/MouseAppExceptionSupport.swift:"),
+               "the leading-slash rule is spelled once, inside isExecutablePathIdentity: \(slashRuleSites)")
         expect(MouseAppExceptionSupport.sourceProcessID(42) == 42
                 && MouseAppExceptionSupport.sourceProcessID(0) == nil
                 && MouseAppExceptionSupport.sourceProcessID(-1) == nil
