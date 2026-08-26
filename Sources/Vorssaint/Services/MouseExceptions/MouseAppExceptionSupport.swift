@@ -106,6 +106,25 @@ enum MouseAppExceptionSupport {
         return exceptions.contains(bundleID)
     }
 
+    /// A program that is not packaged as an app has no bundle identifier at
+    /// all — the Java process a game launcher starts is the one people ask
+    /// about (issue #1009) — so the path of the file being run stands in as
+    /// its identity. A stored path is told apart from a bundle identifier by
+    /// its leading slash, which a bundle identifier never has, so one list
+    /// carries both kinds and everything already saved keeps its meaning.
+    static func isExecutablePathIdentity(_ identity: String) -> Bool {
+        identity.hasPrefix("/")
+    }
+
+    /// What an app answers to: its bundle identifier when it has one, and the
+    /// file being run when it does not. Ordinary apps are unaffected — they
+    /// keep answering to the identifier they always did.
+    static func identities(bundleID: String?, executablePath: String?) -> [String] {
+        guard bundleID == nil else { return [bundleID!] }
+        guard let executablePath, isExecutablePathIdentity(executablePath) else { return [] }
+        return [executablePath]
+    }
+
     static func sourceProcessID(_ rawValue: Int64) -> Int32? {
         guard rawValue > 0 else { return nil }
         return Int32(exactly: rawValue)

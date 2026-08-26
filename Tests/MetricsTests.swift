@@ -14617,6 +14617,37 @@ struct MetricsTests {
                 && !MouseAppExceptionSupport.isExcepted(["com.example.other"],
                                                          exceptions: exceptionSet),
                "a source app or one of its bundled helpers can carry an exception")
+        // A program started from a launcher — the Java process behind a game
+        // is the reported one — has no bundle identifier at all, so the file
+        // being run stands in as its identity (issue #1009). An app that has
+        // an identifier keeps answering only to that, so nothing already
+        // listed changes meaning.
+        expect(MouseAppExceptionSupport.identities(bundleID: "com.example.modeler",
+                                                    executablePath: "/Applications/Modeler.app/Contents/MacOS/Modeler")
+                == ["com.example.modeler"],
+               "an app with a bundle identifier answers to it and not to its executable")
+        expect(MouseAppExceptionSupport.identities(bundleID: nil,
+                                                    executablePath: "/opt/game/runtime/bin/java")
+                == ["/opt/game/runtime/bin/java"],
+               "a program with no bundle identifier answers to the file being run")
+        expect(MouseAppExceptionSupport.identities(bundleID: nil, executablePath: nil).isEmpty
+                && MouseAppExceptionSupport.identities(bundleID: nil,
+                                                        executablePath: "java").isEmpty,
+               "a program with nothing to be named by is never excepted by accident")
+        expect(MouseAppExceptionSupport.isExecutablePathIdentity("/opt/game/runtime/bin/java")
+                && !MouseAppExceptionSupport.isExecutablePathIdentity("com.example.modeler"),
+               "a stored path is told from a bundle identifier by its leading slash")
+        expect(MouseAppExceptionSupport.isExcepted(
+                   MouseAppExceptionSupport.identities(bundleID: nil,
+                                                        executablePath: "/opt/game/runtime/bin/java"),
+                   exceptions: ["/opt/game/runtime/bin/java"])
+                && !MouseAppExceptionSupport.isExcepted(
+                    MouseAppExceptionSupport.identities(bundleID: nil,
+                                                         executablePath: "/opt/other/bin/java"),
+                    exceptions: ["/opt/game/runtime/bin/java"]),
+               "a listed program path excepts that program and no other")
+        expect(InstalledApps.name(for: "/opt/game/runtime/bin/java") == "java",
+               "a listed program path is shown by its file name, not the whole path")
         expect(MouseAppExceptionSupport.sourceProcessID(42) == 42
                 && MouseAppExceptionSupport.sourceProcessID(0) == nil
                 && MouseAppExceptionSupport.sourceProcessID(-1) == nil

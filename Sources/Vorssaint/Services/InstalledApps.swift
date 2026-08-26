@@ -27,13 +27,21 @@ enum InstalledApps {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
     }
 
+    /// A list entry can also be the path of a program that is not packaged as
+    /// an app, which has no bundle identifier to be named by (issue #1009).
+    /// A bundle identifier never starts with a slash, so the two never collide.
+    private static func fileURL(forIdentity identity: String) -> URL? {
+        guard identity.hasPrefix("/") else { return url(for: identity) }
+        return URL(fileURLWithPath: identity)
+    }
+
     static func name(for bundleID: String) -> String {
-        guard let url = url(for: bundleID) else { return bundleID }
+        guard let url = fileURL(forIdentity: bundleID) else { return bundleID }
         return FileManager.default.displayName(atPath: url.path)
     }
 
     static func icon(for bundleID: String) -> NSImage {
-        if let url = url(for: bundleID) {
+        if let url = fileURL(forIdentity: bundleID) {
             return NSWorkspace.shared.icon(forFile: url.path)
         }
         return NSWorkspace.shared.icon(for: .applicationBundle)

@@ -22,6 +22,9 @@ struct AppBundleList<Accessory: View>: View {
     /// Whether the picker reaches every app instead of only the installed
     /// ones: it browses Applications and offers what is running as well.
     let reachesEveryApp: Bool
+    /// Whether a program that is not packaged as an app may be added. Only the
+    /// lists whose feature can recognize one at runtime pass this (issue #1009).
+    let acceptsExecutables: Bool
     let onAdd: (String) -> Void
     let onRemove: (String) -> Void
     let accessory: (String) -> Accessory
@@ -35,6 +38,7 @@ struct AppBundleList<Accessory: View>: View {
          removeLabel: String,
          bundleIDs: [String],
          reachesEveryApp: Bool = false,
+         acceptsExecutables: Bool = false,
          onAdd: @escaping (String) -> Void,
          onRemove: @escaping (String) -> Void,
          @ViewBuilder accessory: @escaping (String) -> Accessory) {
@@ -44,6 +48,7 @@ struct AppBundleList<Accessory: View>: View {
         self.removeLabel = removeLabel
         self.bundleIDs = bundleIDs
         self.reachesEveryApp = reachesEveryApp
+        self.acceptsExecutables = acceptsExecutables
         self.onAdd = onAdd
         self.onRemove = onRemove
         self.accessory = accessory
@@ -112,14 +117,20 @@ struct AppBundleList<Accessory: View>: View {
 
     private var appPickerSheet: some View {
         let listed = Set(bundleIDs)
-        return AppPickerView(canBrowseApplications: reachesEveryApp) {
+        return AppPickerView(canBrowseApplications: reachesEveryApp,
+                             acceptsExecutables: acceptsExecutables) {
             showingAppPicker = false
         } onSelect: { url in
             // Closed first: a bundle without an identifier is nothing to add,
             // but the sheet still did its job and has to go away.
             showingAppPicker = false
-            guard let bundleID = Bundle(url: url)?.bundleIdentifier else { return }
-            onAdd(bundleID)
+            if let bundleID = Bundle(url: url)?.bundleIdentifier {
+                onAdd(bundleID)
+            } else if acceptsExecutables {
+                // A program that is not packaged as an app has no identifier
+                // to store, so the file being run stands in for it (#1009).
+                onAdd(url.path)
+            }
         } loadApps: {
             InstalledApps.installedBundleApplications(excluding: listed,
                                                        includeRunningApplications: reachesEveryApp)
@@ -134,6 +145,7 @@ extension AppBundleList where Accessory == EmptyView {
          removeLabel: String,
          bundleIDs: [String],
          reachesEveryApp: Bool = false,
+         acceptsExecutables: Bool = false,
          onAdd: @escaping (String) -> Void,
          onRemove: @escaping (String) -> Void) {
         self.init(title: title,
@@ -142,6 +154,7 @@ extension AppBundleList where Accessory == EmptyView {
                   removeLabel: removeLabel,
                   bundleIDs: bundleIDs,
                   reachesEveryApp: reachesEveryApp,
+                  acceptsExecutables: acceptsExecutables,
                   onAdd: onAdd,
                   onRemove: onRemove,
                   accessory: { _ in EmptyView() })
