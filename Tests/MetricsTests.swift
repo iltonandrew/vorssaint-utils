@@ -3966,29 +3966,55 @@ struct MetricsTests {
         // window server's word alone, with nothing to fire the destroy
         // notification every check depends on (issue #1008).
         expect(AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 0,
-                                                     hasWindowServerUserWindow: true),
+                                                     foundUserWindow: true),
                "an app the window server still shows a window for is watched again")
         expect(!AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 1,
-                                                      hasWindowServerUserWindow: true),
+                                                      foundUserWindow: true),
                "a registered window is the watch, so nothing is retried")
         expect(!AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 0,
-                                                      hasWindowServerUserWindow: false),
+                                                      foundUserWindow: false),
                "an app with no window anywhere is not eligible and needs no watch")
-        expect(!AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 0,
-                                                      hasWindowServerUserWindow: nil),
-               "an unanswerable window server is not taken as a window")
         let autoQuitServiceSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/Services/AutoQuit/AutoQuitService.swift",
             encoding: .utf8)) ?? ""
-        let autoQuitServiceCodeForRetry = autoQuitServiceSource
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        let autoQuitServiceLines = autoQuitServiceSource.components(separatedBy: "\n")
+        func autoQuitServiceCodeLines(containing fragment: String) -> [Int] {
+            autoQuitServiceLines.enumerated().compactMap { index, line in
+                let code = line.trimmingCharacters(in: .whitespaces)
+                guard !code.hasPrefix("//"), code.contains(fragment) else { return nil }
+                return index + 1
+            }
+        }
         // The retry has to stop: an app whose windows Accessibility can never
-        // describe would otherwise be polled for as long as it runs.
-        expect(autoQuitServiceCodeForRetry.contains("AutoQuitSupport.needsWindowWatchRetry(")
-               && autoQuitServiceCodeForRetry.contains("guard attempt < Self.windowWatchRetryDelays.count else { return }"),
-               "the AutoQuit window watch is retried, and only a bounded number of times")
+        // describe would otherwise be polled for as long as it runs. The
+        // service is not part of this test binary, so pin the load-bearing
+        // timing, stale-timer guard, and Space re-arm at their source lines.
+        let windowWatchRetryCode = [
+            "let serverWindow = windows.isEmpty ? hasWindowServerUserWindow(pid: pid) : nil",
+            "let foundUserWindow = !windows.isEmpty || serverWindow == true",
+            "private static let windowWatchRetryOffsets: [TimeInterval] = [0.5, 1.5, 4.0]",
+            "retry.attemptsScheduled < Self.windowWatchRetryOffsets.count else { return }",
+            "deadline: retry.origin + Self.windowWatchRetryOffsets[attempt]",
+            "retry.pendingTimerID == timerID",
+            "windowWatchRetries.removeAll()",
+            "NSWorkspace.activeSpaceDidChangeNotification",
+            "rearmWindowWatchRetries()",
+        ]
+        let missingWindowWatchRetryCode = windowWatchRetryCode.filter {
+            autoQuitServiceCodeLines(containing: $0).isEmpty
+        }
+        expect(missingWindowWatchRetryCode.isEmpty,
+               "the AutoQuit window-watch retry stays bounded, origin-based, and re-armed by Space changes: missing \(missingWindowWatchRetryCode)")
+        let closeCheckOffsetCode = [
+            "private static let closeCheckOffsets: [TimeInterval] = [0.35, 1.0, 2.2]",
+            "for offset in Self.closeCheckOffsets",
+            "DispatchQueue.main.asyncAfter(deadline: origin + offset)",
+        ]
+        let missingCloseCheckOffsetCode = closeCheckOffsetCode.filter {
+            autoQuitServiceCodeLines(containing: $0).isEmpty
+        }
+        expect(missingCloseCheckOffsetCode.isEmpty,
+               "AutoQuit close checks remain offsets from one origin: missing \(missingCloseCheckOffsetCode)")
 
         // Attaching to a watched app must never ask its application element for
         // a role. A Chromium app (Electron, and the browsers) answers that by

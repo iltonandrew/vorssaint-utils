@@ -60,8 +60,8 @@ enum AutoQuitSupport {
     /// that should quit the app notifies nobody, so the watch is worth another
     /// look (issue #1008).
     static func needsWindowWatchRetry(registeredWindows: Int,
-                                      hasWindowServerUserWindow: Bool?) -> Bool {
-        registeredWindows == 0 && hasWindowServerUserWindow == true
+                                      foundUserWindow: Bool) -> Bool {
+        registeredWindows == 0 && foundUserWindow
     }
 
     static func shouldQuitAfterWindowCheck(hadWindows: Bool,
