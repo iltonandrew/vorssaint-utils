@@ -3962,6 +3962,34 @@ struct MetricsTests {
                                                             hasTitle: true),
                "without Spaces to compare, the old cautious rule stands")
 
+        // A refresh that registered no window leaves the app eligible on the
+        // window server's word alone, with nothing to fire the destroy
+        // notification every check depends on (issue #1008).
+        expect(AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 0,
+                                                     hasWindowServerUserWindow: true),
+               "an app the window server still shows a window for is watched again")
+        expect(!AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 1,
+                                                      hasWindowServerUserWindow: true),
+               "a registered window is the watch, so nothing is retried")
+        expect(!AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 0,
+                                                      hasWindowServerUserWindow: false),
+               "an app with no window anywhere is not eligible and needs no watch")
+        expect(!AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 0,
+                                                      hasWindowServerUserWindow: nil),
+               "an unanswerable window server is not taken as a window")
+        let autoQuitServiceSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/AutoQuit/AutoQuitService.swift",
+            encoding: .utf8)) ?? ""
+        let autoQuitServiceCodeForRetry = autoQuitServiceSource
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        // The retry has to stop: an app whose windows Accessibility can never
+        // describe would otherwise be polled for as long as it runs.
+        expect(autoQuitServiceCodeForRetry.contains("AutoQuitSupport.needsWindowWatchRetry(")
+               && autoQuitServiceCodeForRetry.contains("guard attempt < Self.windowWatchRetryDelays.count else { return }"),
+               "the AutoQuit window watch is retried, and only a bounded number of times")
+
         // Attaching to a watched app must never ask its application element for
         // a role. A Chromium app (Electron, and the browsers) answers that by
         // switching its renderers into full accessibility mode, and then pays

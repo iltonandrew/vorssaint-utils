@@ -56,6 +56,8 @@ final class AutoQuitService: ObservableObject {
     /// Apps whose attach is waiting on a retry, so a second round never starts.
     private var retryingApps = Set<pid_t>()
     private var minimizedWindows: [pid_t: Set<CGWindowID>] = [:]
+    /// Refreshes that found the app eligible but had no window to watch.
+    private var windowWatchRetries: [pid_t: Int] = [:]
     private var appsWithUnresolvedMinimizedWindows = Set<pid_t>()
 
     private let closeRequestGrace: TimeInterval = 5
@@ -207,6 +209,7 @@ final class AutoQuitService: ObservableObject {
         retryingApps.remove(pid)
         minimizedWindows[pid] = nil
         appsWithUnresolvedMinimizedWindows.remove(pid)
+        windowWatchRetries[pid] = nil
     }
 
     /// Called from the C observer callback (on the main run loop).
@@ -274,6 +277,16 @@ final class AutoQuitService: ObservableObject {
     /// meant the app was never asked to quit at all. Two more looks settle it,
     /// with room for slower machines.
     private static let closeCheckDelays: [TimeInterval] = [0.35, 1.0, 2.2]
+
+    /// Accessibility can list no windows for an app the window server still
+    /// shows one for: it answers late for an app that is busy, and it cannot
+    /// describe a window parked on a Space that is not visible at all. Either
+    /// way the app is marked eligible with nothing to watch, so the close that
+    /// should quit it destroys a window nobody registered for and no check is
+    /// ever scheduled (issue #1008). Look again a few times: Accessibility
+    /// usually catches up within the first, and when it never does the retries
+    /// stop rather than polling for the life of the app.
+    private static let windowWatchRetryDelays: [TimeInterval] = [0.5, 1.5, 4.0]
 
     private func scheduleWindowChecks(pid: pid_t) {
         // Closing several windows at once (or a click plus the window going
@@ -372,8 +385,32 @@ final class AutoQuitService: ObservableObject {
             watch(window: window, observer: observer, refcon: refcon)
         }
         recordMinimizedWindows(pid: pid, windows: windows)
-        if !windows.isEmpty || hasWindowServerUserWindow(pid: pid) == true {
+        let serverWindow = hasWindowServerUserWindow(pid: pid)
+        if !windows.isEmpty || serverWindow == true {
             hadWindows[pid] = true
+        }
+        // Eligible on the window server's word, with no Accessibility window to
+        // hang the destroy notification on. Nothing else brings one back: the
+        // app-level notifications that would refresh only fire for a window
+        // appearing, and this one is already there.
+        if AutoQuitSupport.needsWindowWatchRetry(registeredWindows: windows.count,
+                                                 hasWindowServerUserWindow: serverWindow) {
+            scheduleWindowWatchRetry(pid: pid)
+        } else if !windows.isEmpty {
+            windowWatchRetries[pid] = nil
+        }
+    }
+
+    private func scheduleWindowWatchRetry(pid: pid_t) {
+        let attempt = windowWatchRetries[pid] ?? 0
+        guard attempt < Self.windowWatchRetryDelays.count else { return }
+        windowWatchRetries[pid] = attempt + 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.windowWatchRetryDelays[attempt]) { [weak self] in
+            // The live observer, not the one captured at scheduling: a detach
+            // and re-attach inside the delay would leave the captured one with
+            // its run-loop source gone, registering watches nobody hears.
+            guard let self, self.running, let observer = self.observers[pid] else { return }
+            self.refreshWindows(pid: pid, observer: observer)
         }
     }
 
