@@ -251,7 +251,23 @@ final class WindowMaximizer: ObservableObject {
         return element
     }
 
+
+    /// An application element answers a role query by switching a Chromium app's
+    /// renderers into full accessibility mode for the rest of the process's life
+    /// (issue #953), so it must never be asked for one. Its own pid names it:
+    /// the element built from that pid is the same element, since Accessibility
+    /// compares by value rather than by identity. Asking each element for its
+    /// own pid also keeps this right where a parent chain crosses processes,
+    /// which a sentinel built once from the starting element would miss.
+    private func isApplicationElement(_ element: AXUIElement) -> Bool {
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        guard pid != 0 else { return false }
+        return CFEqual(element, AXUIElementCreateApplication(pid))
+    }
+
     private func topLevelWindow(from element: AXUIElement) -> AXUIElement? {
+        guard !isApplicationElement(element) else { return nil }
         if role(of: element) == (kAXWindowRole as String) { return element }
 
         if let window = elementAttribute(element, kAXWindowAttribute as String) {
@@ -269,14 +285,10 @@ final class WindowMaximizer: ObservableObject {
         // a Chromium app's renderers into full accessibility mode for the rest
         // of the process's life (issue #953), so stop there instead: the walk
         // already ends with no window in that case.
-        var pid: pid_t = 0
-        AXUIElementGetPid(element, &pid)
-        let appElement = pid == 0 ? nil : AXUIElementCreateApplication(pid)
-
         var current = element
         for _ in 0..<8 {
             guard let parent = elementAttribute(current, kAXParentAttribute as String) else { return nil }
-            if let appElement, CFEqual(parent, appElement) { return nil }
+            if isApplicationElement(parent) { return nil }
             if role(of: parent) == (kAXWindowRole as String) { return parent }
             current = parent
         }

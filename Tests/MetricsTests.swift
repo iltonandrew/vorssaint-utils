@@ -13627,13 +13627,16 @@ struct MetricsTests {
         for file in appSources.sorted() {
             guard let source = try? String(contentsOfFile: "Sources/Vorssaint/\(file)",
                                            encoding: .utf8) else { continue }
-            let code = source
-                .split(separator: "\n", omittingEmptySubsequences: false)
+            let lines = source.components(separatedBy: "\n")
                 .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-                .joined(separator: "\n")
-            guard code.contains("role(of: parent)") else { continue }
-            guard !code.contains("CFEqual(parent, appElement)") else { continue }
-            unguardedParentWalks.append(file)
+            // Per occurrence and in order: a guard sitting anywhere in the file
+            // would let a second walk go unguarded, and one written after the
+            // read would let the read happen first, which is the whole failure.
+            for (index, line) in lines.enumerated() where line.contains("role(of: parent)") {
+                let guarded = lines[max(0, index - 3)..<index]
+                    .contains { $0.contains("isApplicationElement(parent)") }
+                if !guarded { unguardedParentWalks.append("\(file):\(index + 1)") }
+            }
         }
         expect(!appSources.isEmpty && unguardedParentWalks.isEmpty,
                "a walk up the parent chain stops at the application element: \(unguardedParentWalks)")
