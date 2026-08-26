@@ -13944,6 +13944,11 @@ struct MetricsTests {
         // and its element off one line. An application element handed to a
         // helper, stored in a property, or passed inline is still on review to
         // catch; both reads found so far were written the direct way.
+        // Both scans below report real line numbers, so neither may filter its
+        // array before enumerating: comments drop out in the predicate instead.
+        func isCommentLine(_ line: String) -> Bool {
+            line.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+        }
         var applicationRoleReads: [String] = []
         for file in appSources.sorted() {
             guard let source = try? String(contentsOfFile: "Sources/Vorssaint/\(file)",
@@ -13959,7 +13964,7 @@ struct MetricsTests {
             }
             for (index, line) in lines.enumerated()
             where line.contains("kAXRoleAttribute")
-                && !line.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+                && !isCommentLine(line)
                 && applicationElements.contains(where: { line.contains("(\($0), ") }) {
                 applicationRoleReads.append("\(file):\(index + 1)")
             }
@@ -13980,13 +13985,11 @@ struct MetricsTests {
             // would let a second walk go unguarded, and one written after the
             // read would let the read happen first, which is the whole failure.
             for (index, line) in lines.enumerated()
-            where line.contains("role(of: parent)")
-                && !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+            where line.contains("role(of: parent)") && !isCommentLine(line) {
                 // The window reads raw lines so the report above stays in real
                 // line numbers; a commented-out guard must not count as one.
                 let guarded = lines[max(0, index - 3)..<index]
-                    .contains { $0.contains("isApplicationElement(parent)")
-                        && !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                    .contains { $0.contains("isApplicationElement(parent)") && !isCommentLine($0) }
                 if !guarded { unguardedParentWalks.append("\(file):\(index + 1)") }
             }
         }
