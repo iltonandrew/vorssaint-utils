@@ -41,7 +41,7 @@ final class MouseAppExceptions: ObservableObject {
     /// The last resolved answer: what the app answers to, the window it came
     /// from (nil when the pointer was over nothing), where the pointer was and
     /// when.
-    private var cachedIdentities: [String] = []
+    private var cachedIdentity: String?
     private var cachedRegion: CGRect?
     private var cachedPoint: CGPoint = .zero
     private var cachedAt: TimeInterval = -1
@@ -72,10 +72,12 @@ final class MouseAppExceptions: ObservableObject {
 
     func list(_ scope: MouseExceptionScope) -> [String] { lists[scope] ?? [] }
 
-    func add(_ bundleID: String, to scope: MouseExceptionScope) {
-        let bundleID = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !bundleID.isEmpty, !list(scope).contains(bundleID) else { return }
-        UserDefaults.standard.set(list(scope) + [bundleID], forKey: scope.defaultsKey)
+    /// Sanitized here the same way `reload` sanitizes what it reads, so an
+    /// entry cannot be stored in one spelling and looked for in another.
+    func add(_ identity: String, to scope: MouseExceptionScope) {
+        let updated = Defaults.sanitizedBundleIdentifierList(list(scope) + [identity])
+        guard updated != list(scope) else { return }
+        UserDefaults.standard.set(updated, forKey: scope.defaultsKey)
         reload()
     }
 
@@ -98,7 +100,7 @@ final class MouseAppExceptions: ObservableObject {
            sourceProcessIDs[scope]?.contains(pid) == true {
             return true
         }
-        return MouseAppExceptionSupport.isExcepted(pointerIdentities(at: point), exceptions: exceptions)
+        return MouseAppExceptionSupport.isExcepted(pointerIdentity(at: point), exceptions: exceptions)
     }
 
     /// True when the app under the pointer or the app in front is on this
@@ -114,10 +116,10 @@ final class MouseAppExceptions: ObservableObject {
            sourceProcessIDs[scope]?.contains(pid) == true {
             return true
         }
-        if MouseAppExceptionSupport.isExcepted(pointerIdentities(at: point), exceptions: exceptions) {
+        if MouseAppExceptionSupport.isExcepted(pointerIdentity(at: point), exceptions: exceptions) {
             return true
         }
-        return MouseAppExceptionSupport.isExcepted(Self.identities(for: NSWorkspace.shared.frontmostApplication),
+        return MouseAppExceptionSupport.isExcepted(Self.identity(for: NSWorkspace.shared.frontmostApplication),
                                                    exceptions: exceptions)
     }
 
@@ -176,8 +178,10 @@ final class MouseAppExceptions: ObservableObject {
     /// only public bundle URLs and runs on launch or preference changes, never
     /// in the wheel callback.
     private func sourceBundleIdentifiers(for app: NSRunningApplication) -> [String] {
-        var identifiers = MouseAppExceptionSupport.identities(bundleID: app.bundleIdentifier,
-                                                              executablePath: app.executableURL?.path)
+        var identifiers: [String] = []
+        if let identity = Self.identity(for: app) {
+            identifiers.append(identity)
+        }
 
         var url = (app.bundleURL ?? app.executableURL)?.standardizedFileURL
         while let candidate = url, candidate.path != "/" {
@@ -197,15 +201,15 @@ final class MouseAppExceptions: ObservableObject {
 
     /// What the app that owns the window under the pointer answers to, falling
     /// back to the app in front when the pointer is over none.
-    private func pointerIdentities(at point: CGPoint) -> [String] {
-        guard !allEmpty else { return [] }
+    private func pointerIdentity(at point: CGPoint) -> String? {
+        guard !allEmpty else { return nil }
         let now = ProcessInfo.processInfo.systemUptime
         if MouseAppExceptionSupport.cacheHolds(region: cachedRegion,
                                                resolvedPoint: cachedPoint,
                                                resolvedAt: cachedAt,
                                                point: point,
                                                now: now) {
-            return cachedIdentities
+            return cachedIdentity
         }
 
         let window = MouseAppExceptionSupport.pointerWindow(in: Self.onScreenWindows(),
@@ -213,25 +217,25 @@ final class MouseAppExceptions: ObservableObject {
                                                             ownProcessID: Self.ownProcessID)
         let app = window.map { NSRunningApplication(processIdentifier: $0.processID) }
             ?? NSWorkspace.shared.frontmostApplication
-        let identities = Self.identities(for: app)
-        cachedIdentities = identities
+        let identity = Self.identity(for: app)
+        cachedIdentity = identity
         cachedRegion = window?.frame
         cachedPoint = point
         cachedAt = now
-        return identities
+        return identity
     }
 
     /// A program with no bundle identifier answers to the file being run
     /// instead, so a game started from a launcher can be named at all
     /// (issue #1009).
-    private static func identities(for app: NSRunningApplication?) -> [String] {
-        guard let app else { return [] }
-        return MouseAppExceptionSupport.identities(bundleID: app.bundleIdentifier,
-                                                   executablePath: app.executableURL?.path)
+    private static func identity(for app: NSRunningApplication?) -> String? {
+        guard let app else { return nil }
+        return MouseAppExceptionSupport.identity(bundleID: app.bundleIdentifier,
+                                                 executablePath: app.executableURL?.path)
     }
 
     private func invalidateCache() {
-        cachedIdentities = []
+        cachedIdentity = nil
         cachedRegion = nil
         cachedAt = -1
     }

@@ -121,16 +121,18 @@ struct AppBundleList<Accessory: View>: View {
                              acceptsExecutables: acceptsExecutables) {
             showingAppPicker = false
         } onSelect: { url in
-            // Closed first: a bundle without an identifier is nothing to add,
-            // but the sheet still did its job and has to go away.
+            // Closed first: a file with nothing to be named by is nothing to
+            // add, but the sheet still did its job and has to go away.
             showingAppPicker = false
-            if let bundleID = Bundle(url: url)?.bundleIdentifier {
-                onAdd(bundleID)
-            } else if acceptsExecutables {
-                // A program that is not packaged as an app has no identifier
-                // to store, so the file being run stands in for it (#1009).
-                onAdd(url.path)
-            }
+            // What the picked file will be reported as once it runs (#1009),
+            // which is a bundle identifier or a path depending on the file,
+            // never on which of the two the sheet was pointed at. A list that
+            // takes only apps drops a path rather than storing an entry its
+            // own matcher would ignore.
+            guard let identity = MouseAppExceptionSupport.pickedIdentity(for: url),
+                  acceptsExecutables
+                      || !MouseAppExceptionSupport.isExecutablePathIdentity(identity) else { return }
+            onAdd(identity)
         } loadApps: {
             InstalledApps.installedBundleApplications(excluding: listed,
                                                        includeRunningApplications: reachesEveryApp)
