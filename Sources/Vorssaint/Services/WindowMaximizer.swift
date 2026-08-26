@@ -263,9 +263,20 @@ final class WindowMaximizer: ObservableObject {
             if role(of: window) == (kAXWindowRole as String) { return window }
         }
 
+        // The chain above a window is the application element itself, so an
+        // element that never yields a window — a menu bar item, a detached
+        // palette — walks onto it. Asking that element for a role is what puts
+        // a Chromium app's renderers into full accessibility mode for the rest
+        // of the process's life (issue #953), so stop there instead: the walk
+        // already ends with no window in that case.
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        let appElement = pid == 0 ? nil : AXUIElementCreateApplication(pid)
+
         var current = element
         for _ in 0..<8 {
             guard let parent = elementAttribute(current, kAXParentAttribute as String) else { return nil }
+            if let appElement, CFEqual(parent, appElement) { return nil }
             if role(of: parent) == (kAXWindowRole as String) { return parent }
             current = parent
         }
