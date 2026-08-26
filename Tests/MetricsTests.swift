@@ -3147,6 +3147,9 @@ struct MetricsTests {
                "dragging windows to screen edges is opt-in")
         expect(registeredDefaults[DefaultsKey.windowGestureEnabled] as? Bool == false,
                "window move and resize gestures are opt-in")
+        expect(registeredDefaults[DefaultsKey.mouseSpacesGestureEnabled] as? Bool == false
+                && registeredDefaults[DefaultsKey.mouseSpacesGestureButton] as? Int == 0,
+               "the Spaces and Mission Control drag ships off and with no button bound")
         expect(registeredDefaults[DefaultsKey.windowGestureModifiers] as? String == "control+command",
                "window gestures start with the deliberate control-command chord")
         expect(registeredDefaults[DefaultsKey.windowGestureRaiseWindow] as? Bool == false,
@@ -11503,7 +11506,7 @@ struct MetricsTests {
         for language in AppLanguage.allCases {
             let values = Mirror(reflecting: FeatureStrings.mouseButtons(language)).children
                 .compactMap { $0.value as? String }
-            expect(values.count == 23 && values.allSatisfy { !$0.isEmpty },
+            expect(values.count == 27 && values.allSatisfy { !$0.isEmpty },
                    "every mouse button string is set for \(language.rawValue)")
             expect(values.allSatisfy { !$0.contains("—") },
                    "no em-dash in visible mouse button strings (\(language.rawValue))")
@@ -14859,7 +14862,8 @@ struct MetricsTests {
                "the mapping dictionary registers empty so it travels with backups")
         expect(Defaults.registeredDefaults[DefaultsKey.panelControlMouseButtonShortcuts] as? Bool == true,
                "the mouse button shortcuts panel row ships visible like its siblings")
-        expect(AppFeature.mouseButtonShortcuts.enabledKeys == [DefaultsKey.mouseButtonShortcutsEnabled]
+        expect(AppFeature.mouseButtonShortcuts.enabledKeys == [DefaultsKey.mouseButtonShortcutsEnabled,
+                                                              DefaultsKey.mouseSpacesGestureEnabled]
                 && AppFeature.mouseButtonShortcuts.permissions == [.accessibility]
                 && AppFeature.mouseButtonShortcuts.group == .mouseKeyboard,
                "the hub knows the feature's switch, permission and group")
@@ -14976,6 +14980,129 @@ struct MetricsTests {
                     for: MouseButtonShortcutSupport.sideWheelRightInput, strings: .enUS) == "Side wheel right"
                 && MouseButtonShortcutSupport.buttonName(for: 5, strings: .enUS) == "Button 6",
                "buttons and side-wheel directions have clear names")
+
+        // MARK: Spaces and Mission Control drag (issue #1012)
+
+        let spaceStep = MouseSpacesGestureSupport.spaceStep
+        let overviewStep = MouseSpacesGestureSupport.overviewStep
+        let spaceCooldown = MouseSpacesGestureSupport.spaceRepeatCooldown
+
+        var dragRight = MouseSpacesGestureSupport.Tracker(origin: .zero)
+        expect(dragRight.advance(to: CGPoint(x: spaceStep - 1, y: 0), now: 0) == nil
+                && dragRight.advance(to: CGPoint(x: spaceStep, y: 0), now: 0.1) == .spaceRight,
+               "one whole step to the right moves one Space to the right, and not a pixel sooner")
+        var dragLeft = MouseSpacesGestureSupport.Tracker(origin: .zero)
+        expect(dragLeft.advance(to: CGPoint(x: -spaceStep, y: 0), now: 0) == .spaceLeft,
+               "the same step to the left moves the other way")
+        var dragUp = MouseSpacesGestureSupport.Tracker(origin: .zero)
+        expect(dragUp.advance(to: CGPoint(x: 0, y: -overviewStep + 1), now: 0) == nil
+                && dragUp.advance(to: CGPoint(x: 0, y: -overviewStep), now: 0.1) == .missionControl,
+               "dragging up opens Mission Control once the vertical step is behind it")
+        var dragDown = MouseSpacesGestureSupport.Tracker(origin: .zero)
+        expect(dragDown.advance(to: CGPoint(x: 0, y: overviewStep), now: 0) == .appExpose,
+               "dragging down opens App Exposé, the way the trackpad swipe does")
+
+        var nudge = MouseSpacesGestureSupport.Tracker(origin: .zero)
+        let nudged = (1...12).compactMap {
+            nudge.advance(to: CGPoint(x: CGFloat($0) * 5, y: CGFloat($0) * 3), now: Double($0) * 0.02)
+        }
+        expect(nudged.isEmpty && !nudge.didFire && nudge.axis == nil,
+               "a drag that stays under both steps does nothing, so the press is still a plain click")
+
+        var wildPointer = MouseSpacesGestureSupport.Tracker(origin: .zero)
+        expect(wildPointer.advance(to: CGPoint(x: CGFloat.nan, y: CGFloat.infinity), now: 0) == nil
+                && !wildPointer.didFire,
+               "a pointer position that is not a number moves nothing")
+
+        var heldDrag = MouseSpacesGestureSupport.Tracker(origin: .zero)
+        expect(heldDrag.advance(to: CGPoint(x: spaceStep, y: 0), now: 0) == .spaceRight
+                && heldDrag.advance(to: CGPoint(x: spaceStep * 2, y: 0), now: spaceCooldown / 2) == nil
+                && heldDrag.advance(to: CGPoint(x: spaceStep * 2 + 1, y: 0),
+                                    now: spaceCooldown + 0.01) == .spaceRight,
+               "a held drag repeats one Space per step, never faster than the slide animation")
+
+        var flick = MouseSpacesGestureSupport.Tracker(origin: .zero)
+        _ = flick.advance(to: CGPoint(x: spaceStep, y: 0), now: 0)
+        _ = flick.advance(to: CGPoint(x: spaceStep * 6, y: 0), now: spaceCooldown / 2)
+        expect(flick.advance(to: CGPoint(x: spaceStep * 6, y: 0),
+                             now: spaceCooldown + 0.01) == .spaceRight
+                && flick.advance(to: CGPoint(x: spaceStep * 6, y: 0),
+                                 now: spaceCooldown * 2 + 0.02) == nil,
+               "a fast flick banks one further Space change, not a burst that outlives the hand")
+
+        var diagonal = MouseSpacesGestureSupport.Tracker(origin: .zero)
+        expect(diagonal.advance(to: CGPoint(x: spaceStep, y: 0), now: 0) == .spaceRight
+                && diagonal.advance(to: CGPoint(x: spaceStep, y: -overviewStep * 3),
+                                    now: spaceCooldown + 0.01) == nil
+                && diagonal.axis == .horizontal,
+               "a press that started switching Spaces never throws up Mission Control halfway through")
+
+        var overviewPress = MouseSpacesGestureSupport.Tracker(origin: .zero)
+        expect(overviewPress.advance(to: CGPoint(x: 0, y: -overviewStep), now: 0) == .missionControl
+                && overviewPress.advance(to: CGPoint(x: 0, y: -overviewStep * 4), now: 1) == nil
+                && overviewPress.didFire,
+               "an overview is a toggle, so one press opens it exactly once")
+
+        var bothAxes = MouseSpacesGestureSupport.Tracker(origin: .zero)
+        expect(bothAxes.advance(to: CGPoint(x: spaceStep, y: overviewStep * 2), now: 0) == .appExpose,
+               "a step past both thresholds is read as the axis that went furthest past its own")
+
+        expect(MouseSpacesGestureSupport.canBind(3) && MouseSpacesGestureSupport.canBind(31)
+                && !MouseSpacesGestureSupport.canBind(2) && !MouseSpacesGestureSupport.canBind(32)
+                && !MouseSpacesGestureSupport.canBind(MouseButtonShortcutSupport.sideWheelLeftInput),
+               "the drag lives on an extra button, never on a side-wheel tick there is no way to hold")
+
+        expect(MouseSpacesGestureSupport.boundButton(isAvailable: true, isEnabled: true, button: 4,
+                                                     hasShortcut: { _ in false },
+                                                     claimedByWheel: { _ in false }) == 4,
+               "an available, enabled and unclaimed button drives the drag")
+        expect(MouseSpacesGestureSupport.boundButton(isAvailable: true, isEnabled: true, button: 4,
+                                                     hasShortcut: { $0 == 4 },
+                                                     claimedByWheel: { _ in false }) == nil
+                && MouseSpacesGestureSupport.boundButton(isAvailable: true, isEnabled: true, button: 4,
+                                                         hasShortcut: { _ in false },
+                                                         claimedByWheel: { $0 == 4 }) == nil
+                && MouseSpacesGestureSupport.boundButton(isAvailable: false, isEnabled: true, button: 4,
+                                                         hasShortcut: { _ in false },
+                                                         claimedByWheel: { _ in false }) == nil
+                && MouseSpacesGestureSupport.boundButton(isAvailable: true, isEnabled: false, button: 4,
+                                                         hasShortcut: { _ in false },
+                                                         claimedByWheel: { _ in false }) == nil
+                && MouseSpacesGestureSupport.boundButton(isAvailable: true, isEnabled: true, button: 0,
+                                                         hasShortcut: { _ in false },
+                                                         claimedByWheel: { _ in false }) == nil,
+               "the drag never takes a button from a shortcut, from the wheel, or from a switched-off hub")
+        expect(MouseButtonShortcutSupport.spacesGestureButton() == nil,
+               "with nothing configured the drag claims no button away from navigation")
+
+        let spacesServiceCode = ((try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/MouseButtons/MouseButtonShortcutService.swift",
+            encoding: .utf8)) ?? "")
+            .components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        expect(spacesServiceCode.contains("if button == spacesButton {")
+                && spacesServiceCode.contains("return armSpacesGesture(event, button: button)"),
+               "the bound button's press is held back by the tap that already receives its drags")
+        expect(spacesServiceCode.contains("guard gesture.tracker.didFire else {")
+                && spacesServiceCode.contains(
+                    "replaySpacesPress(gesture.down, proxy: proxy, at: event.location)"),
+               "a press that never fired goes back, so a tap on that button keeps its ordinary click")
+        expect(spacesServiceCode.contains("SpaceWindowBridge.spaceShortcut(.left)")
+                && spacesServiceCode.contains("SpaceWindowBridge.overviewShortcut(.missionControl)")
+                && !spacesServiceCode.contains("DockSwipe"),
+               "the drag asks with the system's own registered combinations, never a simulated gesture")
+
+        let spaceBridgeCode = ((try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/Switcher/SpaceWindowBridge.swift",
+            encoding: .utf8)) ?? "")
+            .components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        expect(spaceBridgeCode.contains("self == .left ? 79 : 81")
+                && spaceBridgeCode.contains("self == .missionControl ? 32 : 33")
+                && spaceBridgeCode.contains("CGSIsSymbolicHotKeyEnabled"),
+               "the Space steps and the overviews keep their system symbolic hotkey ids")
 
         // A synthesized press has to carry the same flags a finger produces,
         // or the system matches it against no shortcut of its own (issue #401).

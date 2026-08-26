@@ -27,6 +27,10 @@ struct MouseButtonFeatureStrings {
     let panelCaption: String
     let sideWheelLeftName: String
     let sideWheelRightName: String
+    let spacesEnableLabel: String
+    let spacesEnableCaption: String
+    let spacesPickButton: String
+    let spacesShortcutsOffNote: String
 }
 
 extension FeatureStrings {
@@ -73,7 +77,11 @@ extension MouseButtonFeatureStrings {
         manageButton: "Set up…",
         panelCaption: "Extra buttons and side-wheel directions press key combinations you choose.",
         sideWheelLeftName: "Side wheel left",
-        sideWheelRightName: "Side wheel right"
+        sideWheelRightName: "Side wheel right",
+        spacesEnableLabel: "Switch Spaces by dragging a button",
+        spacesEnableCaption: "Hold the chosen button and drag: left or right moves one Space over, up opens Mission Control, down opens App Exposé. A short click still does what it always did.",
+        spacesPickButton: "Choose a button",
+        spacesShortcutsOffNote: "The Mission Control keyboard shortcuts are switched off in System Settings, so this gesture has nothing to ask for."
     )
 
     static let ptBR = MouseButtonFeatureStrings(
@@ -99,7 +107,11 @@ extension MouseButtonFeatureStrings {
         manageButton: "Configurar…",
         panelCaption: "Botões extras e os sentidos da roda lateral apertam combinações de teclas que você escolher.",
         sideWheelLeftName: "Roda lateral para a esquerda",
-        sideWheelRightName: "Roda lateral para a direita"
+        sideWheelRightName: "Roda lateral para a direita",
+        spacesEnableLabel: "Trocar de Espaço arrastando um botão",
+        spacesEnableCaption: "Segure o botão escolhido e arraste: para a esquerda ou a direita muda um Espaço, para cima abre o Mission Control, para baixo abre o Exposé do app. Um clique curto continua fazendo o que sempre fez.",
+        spacesPickButton: "Escolher um botão",
+        spacesShortcutsOffNote: "Os atalhos de teclado do Mission Control estão desligados nos Ajustes do Sistema, então este gesto não tem o que pedir."
     )
 
     static let tr = MouseButtonFeatureStrings(
@@ -125,7 +137,11 @@ extension MouseButtonFeatureStrings {
         manageButton: "Ayarla…",
         panelCaption: "Ekstra düğmeler ve yan teker yönleri seçtiğiniz tuş birleşimlerine basar.",
         sideWheelLeftName: "Yan teker sola",
-        sideWheelRightName: "Yan teker sağa"
+        sideWheelRightName: "Yan teker sağa",
+        spacesEnableLabel: "Düğmeyi sürükleyerek Alanlar arasında geçiş yap",
+        spacesEnableCaption: "Seçtiğiniz düğmeyi basılı tutup sürükleyin: sola veya sağa bir Alan kaydırır, yukarı Mission Control'ü, aşağı Uygulama Exposé'sini açar. Kısa bir tıklama eskiden yaptığını yapmaya devam eder.",
+        spacesPickButton: "Bir düğme seç",
+        spacesShortcutsOffNote: "Mission Control klavye kısayolları Sistem Ayarları'nda kapalı, bu yüzden bu hareketin isteyeceği bir şey yok."
     )
 
     static let ru = MouseButtonFeatureStrings(
@@ -151,7 +167,11 @@ extension MouseButtonFeatureStrings {
         manageButton: "Настроить…",
         panelCaption: "Дополнительные кнопки и направления бокового колёсика нажимают выбранные вами сочетания клавиш.",
         sideWheelLeftName: "Боковое колёсико влево",
-        sideWheelRightName: "Боковое колёсико вправо"
+        sideWheelRightName: "Боковое колёсико вправо",
+        spacesEnableLabel: "Переключать рабочие столы перетаскиванием кнопки",
+        spacesEnableCaption: "Удерживайте выбранную кнопку и перетаскивайте: влево или вправо переключает на соседний рабочий стол, вверх открывает Mission Control, вниз открывает Exposé приложения. Короткое нажатие по-прежнему делает то, что делало раньше.",
+        spacesPickButton: "Выбрать кнопку",
+        spacesShortcutsOffNote: "Сочетания клавиш Mission Control отключены в Системных настройках, поэтому этому жесту не о чем просить."
     )
 
     static let es = MouseButtonFeatureStrings(
@@ -177,7 +197,11 @@ extension MouseButtonFeatureStrings {
         manageButton: "Configurar…",
         panelCaption: "Los botones extra y las direcciones de la rueda lateral pulsan combinaciones de teclas que tú eliges.",
         sideWheelLeftName: "Rueda lateral a la izquierda",
-        sideWheelRightName: "Rueda lateral a la derecha"
+        sideWheelRightName: "Rueda lateral a la derecha",
+        spacesEnableLabel: "Cambiar de Espacio arrastrando un botón",
+        spacesEnableCaption: "Mantén pulsado el botón elegido y arrastra: a la izquierda o a la derecha cambia un Espacio, hacia arriba abre Mission Control y hacia abajo abre Exposé de apps. Un clic corto sigue haciendo lo de siempre.",
+        spacesPickButton: "Elegir un botón",
+        spacesShortcutsOffNote: "Los atajos de teclado de Mission Control están desactivados en Ajustes del Sistema, así que este gesto no tiene nada que pedir."
     )
 
     static let de = MouseButtonFeatureStrings(
@@ -203,7 +227,11 @@ extension MouseButtonFeatureStrings {
         manageButton: "Einrichten…",
         panelCaption: "Zusätzliche Maustasten und Richtungen des seitlichen Rads drücken Tastaturkurzbefehle deiner Wahl.",
         sideWheelLeftName: "Seitliches Rad nach links",
-        sideWheelRightName: "Seitliches Rad nach rechts"
+        sideWheelRightName: "Seitliches Rad nach rechts",
+        spacesEnableLabel: "Spaces durch Ziehen einer Taste wechseln",
+        spacesEnableCaption: "Halte die gewählte Taste gedrückt und ziehe: nach links oder rechts einen Space weiter, nach oben öffnet Mission Control, nach unten App-Exposé. Ein kurzer Klick tut weiterhin, was er immer tat.",
+        spacesPickButton: "Taste wählen",
+        spacesShortcutsOffNote: "Die Tastaturkurzbefehle für Mission Control sind in den Systemeinstellungen ausgeschaltet, also hat diese Geste nichts, worum sie bitten könnte."
     )
 
     static let fr = MouseButtonFeatureStrings(
@@ -229,7 +257,11 @@ extension MouseButtonFeatureStrings {
         manageButton: "Configurer…",
         panelCaption: "Les boutons supplémentaires et les directions de la molette latérale appuient sur des combinaisons de touches de votre choix.",
         sideWheelLeftName: "Molette latérale vers la gauche",
-        sideWheelRightName: "Molette latérale vers la droite"
+        sideWheelRightName: "Molette latérale vers la droite",
+        spacesEnableLabel: "Changer d'espace en faisant glisser un bouton",
+        spacesEnableCaption: "Maintenez le bouton choisi et faites glisser : à gauche ou à droite pour changer d'espace, vers le haut pour Mission Control, vers le bas pour Exposé d'app. Un clic bref fait toujours ce qu'il faisait avant.",
+        spacesPickButton: "Choisir un bouton",
+        spacesShortcutsOffNote: "Les raccourcis clavier de Mission Control sont désactivés dans Réglages Système, donc ce geste n'a rien à demander."
     )
 
     static let it = MouseButtonFeatureStrings(
@@ -255,7 +287,11 @@ extension MouseButtonFeatureStrings {
         manageButton: "Configura…",
         panelCaption: "I pulsanti extra e le direzioni della rotella laterale premono combinazioni di tasti a tua scelta.",
         sideWheelLeftName: "Rotella laterale a sinistra",
-        sideWheelRightName: "Rotella laterale a destra"
+        sideWheelRightName: "Rotella laterale a destra",
+        spacesEnableLabel: "Cambiare Spazio trascinando un pulsante",
+        spacesEnableCaption: "Tieni premuto il pulsante scelto e trascina: a sinistra o a destra cambi Spazio, in alto apri Mission Control, in basso Exposé app. Un clic breve continua a fare quello che ha sempre fatto.",
+        spacesPickButton: "Scegli un pulsante",
+        spacesShortcutsOffNote: "Le abbreviazioni da tastiera di Mission Control sono disattivate in Impostazioni di Sistema, quindi questo gesto non ha nulla da chiedere."
     )
 
     static let ja = MouseButtonFeatureStrings(
@@ -281,7 +317,11 @@ extension MouseButtonFeatureStrings {
         manageButton: "設定…",
         panelCaption: "拡張ボタンとサイドホイールの左右が、選んだキーの組み合わせを押します。",
         sideWheelLeftName: "サイドホイールを左へ",
-        sideWheelRightName: "サイドホイールを右へ"
+        sideWheelRightName: "サイドホイールを右へ",
+        spacesEnableLabel: "ボタンをドラッグしてスペースを切り替える",
+        spacesEnableCaption: "選んだボタンを押したままドラッグします。左右で1つ隣のスペースへ、上で Mission Control、下で App Exposé が開きます。短いクリックは今までどおりの動きのままです。",
+        spacesPickButton: "ボタンを選ぶ",
+        spacesShortcutsOffNote: "Mission Control のキーボードショートカットがシステム設定でオフになっているため、このジェスチャは何も呼び出せません。"
     )
 
     static let ko = MouseButtonFeatureStrings(
@@ -307,7 +347,11 @@ extension MouseButtonFeatureStrings {
         manageButton: "설정…",
         panelCaption: "추가 버튼과 측면 휠 방향이 선택한 키 조합을 누릅니다.",
         sideWheelLeftName: "측면 휠 왼쪽",
-        sideWheelRightName: "측면 휠 오른쪽"
+        sideWheelRightName: "측면 휠 오른쪽",
+        spacesEnableLabel: "버튼을 드래그해 스페이스 전환",
+        spacesEnableCaption: "선택한 버튼을 누른 채 드래그하세요. 좌우로는 한 칸 옆 스페이스로, 위로는 미션 컨트롤, 아래로는 앱 엑스포제가 열립니다. 짧게 누르면 원래 하던 동작을 그대로 합니다.",
+        spacesPickButton: "버튼 선택",
+        spacesShortcutsOffNote: "미션 컨트롤 키보드 단축키가 시스템 설정에서 꺼져 있어 이 제스처가 요청할 것이 없습니다."
     )
 
     static let zhHans = MouseButtonFeatureStrings(
@@ -333,7 +377,11 @@ extension MouseButtonFeatureStrings {
         manageButton: "设置…",
         panelCaption: "额外按键和侧滚轮方向会按下你选择的按键组合。",
         sideWheelLeftName: "侧滚轮向左",
-        sideWheelRightName: "侧滚轮向右"
+        sideWheelRightName: "侧滚轮向右",
+        spacesEnableLabel: "拖动按键切换桌面",
+        spacesEnableCaption: "按住所选按键并拖动：向左或向右切换一个桌面，向上打开调度中心，向下打开应用程序窗口。短按仍然做它一直做的事。",
+        spacesPickButton: "选择一个按键",
+        spacesShortcutsOffNote: "调度中心的键盘快捷键在系统设置中已关闭，所以这个手势无从调用。"
     )
 
     static let zhTW = MouseButtonFeatureStrings(
@@ -359,7 +407,11 @@ extension MouseButtonFeatureStrings {
         manageButton: "設定…",
         panelCaption: "額外按鍵和側滾輪方向會按下你選擇的按鍵組合。",
         sideWheelLeftName: "側滾輪向左",
-        sideWheelRightName: "側滾輪向右"
+        sideWheelRightName: "側滾輪向右",
+        spacesEnableLabel: "拖曳按鍵切換桌面",
+        spacesEnableCaption: "按住所選按鍵並拖曳：向左或向右切換一個桌面，向上開啟指揮中心，向下開啟 App Exposé。短按仍然做它一直做的事。",
+        spacesPickButton: "選擇一個按鍵",
+        spacesShortcutsOffNote: "指揮中心的鍵盤快速鍵在系統設定中已關閉，所以這個手勢無從呼叫。"
     )
 
     static let zhHK = MouseButtonFeatureStrings(
@@ -385,6 +437,10 @@ extension MouseButtonFeatureStrings {
         manageButton: "設定…",
         panelCaption: "額外按鍵和側滾輪方向會按下你選擇的按鍵組合。",
         sideWheelLeftName: "側滾輪向左",
-        sideWheelRightName: "側滾輪向右"
+        sideWheelRightName: "側滾輪向右",
+        spacesEnableLabel: "拖曳按鍵切換桌面",
+        spacesEnableCaption: "按住所選按鍵並拖曳：向左或向右切換一個桌面，向上開啟指揮中心，向下開啟 App Exposé。短按仍然做它一直做的事。",
+        spacesPickButton: "選擇一個按鍵",
+        spacesShortcutsOffNote: "指揮中心的鍵盤快捷鍵在系統設定中已關閉，所以這個手勢無從呼叫。"
     )
 }
