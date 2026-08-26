@@ -11506,7 +11506,7 @@ struct MetricsTests {
         for language in AppLanguage.allCases {
             let values = Mirror(reflecting: FeatureStrings.mouseButtons(language)).children
                 .compactMap { $0.value as? String }
-            expect(values.count == 27 && values.allSatisfy { !$0.isEmpty },
+            expect(values.count == 30 && values.allSatisfy { !$0.isEmpty },
                    "every mouse button string is set for \(language.rawValue)")
             expect(values.allSatisfy { !$0.contains("—") },
                    "no em-dash in visible mouse button strings (\(language.rawValue))")
@@ -15175,6 +15175,35 @@ struct MetricsTests {
         }
         expect(spacesSwitchOffDropsBinding,
                "the drag's own OFF branch drops its binding, so no hidden button ever refuses a shortcut")
+        // The drag capture speaks its own strings: the shortcut capture's
+        // prompt invites the side wheel the drag refuses, and its refusals
+        // point at a list that is off screen with the shortcut switch off.
+        var spacesPromptIsOwn = false
+        for (index, line) in mouseSettingsLines.enumerated()
+        where isCodeLine(line) && line.contains("private var spacesRow: some View {") {
+            let window = mouseSettingsLines[index...].prefix(10)
+            spacesPromptIsOwn = window.contains {
+                isCodeLine($0) && $0.contains("Text(text.spacesCaptureWaiting)")
+            } && !window.contains {
+                isCodeLine($0) && $0.contains("text.captureWaiting")
+            }
+        }
+        expect(spacesPromptIsOwn,
+               "the drag capture's waiting prompt never invites the side wheel the drag refuses")
+        var spacesRefusalsAreOwn = false
+        for (index, line) in mouseSettingsLines.enumerated()
+        where isCodeLine(line) && line.contains("private func handleSpacesCapture") {
+            let window = mouseSettingsLines[index...].prefix(16)
+            spacesRefusalsAreOwn = window.contains {
+                isCodeLine($0) && $0.contains("text.spacesCaptureUnsupported")
+            } && window.contains {
+                isCodeLine($0) && $0.contains("text.spacesCaptureExists")
+            } && !window.contains {
+                isCodeLine($0) && ($0.contains("text.captureUnsupported") || $0.contains("text.captureExists"))
+            }
+        }
+        expect(spacesRefusalsAreOwn,
+               "the drag capture's refusals recommend only what the drag accepts and point at no list")
 
         // A synthesized press has to carry the same flags a finger produces,
         // or the system matches it against no shortcut of its own (issue #401).

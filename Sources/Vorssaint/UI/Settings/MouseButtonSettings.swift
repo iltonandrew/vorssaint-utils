@@ -197,7 +197,7 @@ struct MouseButtonShortcutsSection: View {
                     if service.isRunning {
                         Image(systemName: "circle.dashed")
                             .foregroundStyle(.secondary)
-                        Text(text.captureWaiting)
+                        Text(text.spacesCaptureWaiting)
                     } else {
                         Image(systemName: "exclamationmark.circle.fill")
                             .foregroundStyle(.orange)
@@ -308,11 +308,11 @@ struct MouseButtonShortcutsSection: View {
     private func handleSpacesCapture(_ seen: Int64?) {
         guard spacesCapturing, let seen else { return }
         if !MouseSpacesGestureSupport.canBind(seen) {
-            spacesFeedback = text.captureUnsupported
+            spacesFeedback = text.spacesCaptureUnsupported
         } else if RadialMenuSupport.claimsMouseButton(seen) {
             spacesFeedback = text.captureWheel
         } else if mappings[seen] != nil {
-            spacesFeedback = text.captureExists
+            spacesFeedback = text.spacesCaptureExists
         } else {
             // Set before the capture ends, so the sync that ends it already
             // sees the new button.
