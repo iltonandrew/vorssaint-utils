@@ -13976,13 +13976,17 @@ struct MetricsTests {
             guard let source = try? String(contentsOfFile: "Sources/Vorssaint/\(file)",
                                            encoding: .utf8) else { continue }
             let lines = source.components(separatedBy: "\n")
-                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             // Per occurrence and in order: a guard sitting anywhere in the file
             // would let a second walk go unguarded, and one written after the
             // read would let the read happen first, which is the whole failure.
-            for (index, line) in lines.enumerated() where line.contains("role(of: parent)") {
+            for (index, line) in lines.enumerated()
+            where line.contains("role(of: parent)")
+                && !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+                // The window reads raw lines so the report above stays in real
+                // line numbers; a commented-out guard must not count as one.
                 let guarded = lines[max(0, index - 3)..<index]
-                    .contains { $0.contains("isApplicationElement(parent)") }
+                    .contains { $0.contains("isApplicationElement(parent)")
+                        && !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
                 if !guarded { unguardedParentWalks.append("\(file):\(index + 1)") }
             }
         }
