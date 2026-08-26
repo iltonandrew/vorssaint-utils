@@ -30,6 +30,10 @@ final class DockPreviewService: ObservableObject {
     private var settingsTimer: Timer?
     private var dockVisibilityTimer: Timer?
     private var reattachGraceFrame: CGRect?
+    /// Where the pointer was when the panel moved out from under it. The grace
+    /// region covers a pointer that has not moved; once this one genuinely
+    /// travels, it is judged against the panel where the panel actually is.
+    private var reattachGraceOrigin: CGPoint?
     private var pendingHover: PendingHover?
     private var pendingHide: DispatchWorkItem?
     private var lastAXMousePoint: CGPoint?
@@ -473,9 +477,16 @@ final class DockPreviewService: ObservableObject {
         // The panel moved out from under a pointer that never left it; where it
         // used to be still counts until the pointer reaches where it is now.
         if reattachGraceFrame?.insetBy(dx: -DockPreviewSupport.panelStayMargin,
-                                       dy: -DockPreviewSupport.panelStayMargin).contains(point) == true {
+                                       dy: -DockPreviewSupport.panelStayMargin).contains(point) == true,
+           let origin = reattachGraceOrigin,
+           hypot(point.x - origin.x, point.y - origin.y) <= DockPreviewSupport.reattachGraceTravel {
             return .panel
         }
+        // Moving away is an answer: the region the panel vacated stops standing
+        // in for it, so leaving does not have to clear a rectangle that no
+        // longer has a panel in it.
+        reattachGraceFrame = nil
+        reattachGraceOrigin = nil
         // Hit-test the Dock before the corridor so landing on a neighbouring icon
         // hands the session over even where the corridor's margin grazes its edge —
         // but only within the Dock's strip, to keep the AX hit-test off the hot path.
@@ -671,6 +682,9 @@ final class DockPreviewService: ObservableObject {
         isPinned = false
         activePanelFrame = nil
         reattachGraceFrame = nil
+        reattachGraceOrigin = nil
+        dockVisibilityTimer?.invalidate()
+        dockVisibilityTimer = nil
         activeCorridor = nil
         activeIconFrame = nil
         activeDockPreferences = nil
@@ -897,6 +911,7 @@ final class DockPreviewService: ObservableObject {
         // as the panel until the pointer reaches the new one, so the preview
         // this repositioning exists to keep usable does not dismiss itself.
         reattachGraceFrame = frame
+        reattachGraceOrigin = lastAppKitMousePoint
         activePanelFrame = edgeFrame
         // Not animated: this service's event tap is served by the main run
         // loop, and setFrame(display:animate:) blocks it for the animation's

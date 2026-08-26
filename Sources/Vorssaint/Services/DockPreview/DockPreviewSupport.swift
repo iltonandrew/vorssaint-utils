@@ -127,6 +127,11 @@ enum DockPreviewSupport {
     /// A little slack around the panel so the cursor grazing its edge doesn't
     /// flicker the session between "inside" and "leaving".
     static let panelStayMargin: CGFloat = 6
+    /// How far the pointer may drift and still count as the one the panel moved
+    /// out from under when an auto-hidden Dock leaves. Wide enough for the jitter
+    /// of a hand resting on a mouse, far short of a deliberate move away — tune
+    /// here if a real desk proves either end of that wrong.
+    static let reattachGraceTravel: CGFloat = 24
     static let edgePadding: CGFloat = 8
     static let panelGap: CGFloat = 6
     static let autohidePanelGap: CGFloat = 0
