@@ -15113,21 +15113,30 @@ struct MetricsTests {
         let isCodeLine: (String) -> Bool = {
             !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
         }
-        var downPathReadsShortcutSwitch = false
+        // Per call site, not the last one seen: a second one added later must
+        // read the switch too, and a file that lost the call entirely has to
+        // fail rather than pass on an empty search.
+        var shortcutCallSites = 0
+        var callSitesMissingShortcutSwitch: [String] = []
         for (index, line) in spacesServiceLines.enumerated()
         where isCodeLine(line)
             && line.contains("guard let shortcut = MouseButtonShortcutSupport.firesShortcut(") {
+            shortcutCallSites += 1
             let window = spacesServiceLines[index...].prefix(7)
-            downPathReadsShortcutSwitch = window.contains {
+            let readsSwitch = window.contains {
                 isCodeLine($0) && $0.contains(
                     "isEnabled: UserDefaults.standard.bool(forKey: DefaultsKey.mouseButtonShortcutsEnabled)")
-            } && window.contains {
+            }
+            let passesPressOn = window.contains {
                 isCodeLine($0) && $0.contains("else { return Unmanaged.passUnretained(event) }")
             }
+            if !readsSwitch || !passesPressOn {
+                callSitesMissingShortcutSwitch.append("MouseButtonShortcutService.swift:\(index + 1)")
+            }
         }
-        expect(downPathReadsShortcutSwitch,
+        expect(shortcutCallSites > 0 && callSitesMissingShortcutSwitch.isEmpty,
                "a tap kept up for the drag alone never fires a mapping the shortcut switch turned "
-                   + "off, and that button's click passes through whole")
+                   + "off, and that button's click passes through whole: \(callSitesMissingShortcutSwitch)")
         expect(spacesServiceLines.contains {
             isCodeLine($0) && $0.contains(
                 "let wanted = (enabled && !mappings.isEmpty) || isCapturing || spacesButton != nil")
