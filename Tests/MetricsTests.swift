@@ -9993,7 +9993,10 @@ struct MetricsTests {
             "/bin/echo", ["ready"], timeout: 1, maxOutputBytes: 1_024)
         let starvedPoolElapsed = Date().timeIntervalSince(starvedStarted)
         for _ in 0..<64 { poolGate.signal() }
-        _ = starvedProbe.wait(timeout: .now() + 5)
+        // Only when the probe never ran: its one signal was already taken above
+        // otherwise, and waiting for a second that no one sends costs the full
+        // timeout on every run of a machine whose pool cannot be starved.
+        if poolIsStarved { _ = starvedProbe.wait(timeout: .now() + 5) }
         expect(occupiedWorkers == 64,
                "the dispatch pool's blocking workers were all taken")
         // 64 is where libdispatch reports the soft limit, not where it stops:
@@ -10021,7 +10024,10 @@ struct MetricsTests {
             .split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
-        expect(!runnerCode.isEmpty && !runnerCode.contains("DispatchQueue.global"),
+        // Matching `.global(` rather than the one spelling: a queue bound to a
+        // local first (`let q: DispatchQueue = .global(qos:)`) reaches the same
+        // pool by a name this rule would otherwise never see.
+        expect(!runnerCode.isEmpty && !runnerCode.contains(".global("),
                "a bounded subprocess is never waited on from the shared dispatch pool")
 
         var networkDelta = NetworkProcessDeltaTracker(maxGap: 10)
