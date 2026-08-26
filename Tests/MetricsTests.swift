@@ -3962,16 +3962,24 @@ struct MetricsTests {
                                                             hasTitle: true),
                "without Spaces to compare, the old cautious rule stands")
 
-        // A refresh that registered no window leaves the app eligible on the
-        // window server's word alone, with nothing to fire the destroy
-        // notification every check depends on (issue #1008).
         expect(AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 0,
+                                                     listedWindows: 0,
                                                      foundUserWindow: true),
                "an app the window server still shows a window for is watched again")
+        expect(AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 1,
+                                                     listedWindows: 2,
+                                                     foundUserWindow: true),
+               "a listed window whose notification failed is watched again")
+        expect(!AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 2,
+                                                      listedWindows: 2,
+                                                      foundUserWindow: true),
+               "two registered windows cover the two Accessibility listed windows")
         expect(!AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 1,
+                                                      listedWindows: 1,
                                                       foundUserWindow: true),
                "a registered window is the watch, so nothing is retried")
         expect(!AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 0,
+                                                      listedWindows: 0,
                                                       foundUserWindow: false),
                "an app with no window anywhere is not eligible and needs no watch")
         expect(AutoQuitSupport.isWindowNotificationRegistered(.success),
@@ -4011,6 +4019,7 @@ struct MetricsTests {
             // retry exists for. Only the destroyed notification decides it.
             "if watch(window: window, observer: observer, refcon: refcon) { watchedWindows += 1 }",
             "needsWindowWatchRetry(registeredWindows: watchedWindows,",
+            "listedWindows: windows.count,",
             "if notification == kAXUIElementDestroyedNotification {",
             "watched = AutoQuitSupport.isWindowNotificationRegistered(result)",
         ]

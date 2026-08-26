@@ -53,16 +53,13 @@ enum AutoQuitSupport {
         }
     }
 
-    /// Whether a refresh left the app eligible to quit with no window to watch.
-    /// The destroy notification that schedules every check is registered per
-    /// window through Accessibility, but eligibility can come from the window
-    /// server alone — and the two disagree while an app is busy, and always for
-    /// a window parked on a Space that is not visible. In that gap the close
-    /// that should quit the app notifies nobody, so the watch is worth another
-    /// look (issue #1008).
+    /// Every found user window requires a registered destroy notification.
+    /// Accessibility-listed windows set that count directly; window-server
+    /// evidence when Accessibility lists none still requires one watch.
     static func needsWindowWatchRetry(registeredWindows: Int,
+                                      listedWindows: Int,
                                       foundUserWindow: Bool) -> Bool {
-        registeredWindows == 0 && foundUserWindow
+        foundUserWindow && registeredWindows < max(listedWindows, 1)
     }
 
     /// Whether adding a window notification left the observer watching for it.

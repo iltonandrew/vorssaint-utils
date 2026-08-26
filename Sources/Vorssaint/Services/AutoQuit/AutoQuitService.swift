@@ -411,11 +411,11 @@ final class AutoQuitService: ObservableObject {
         if foundUserWindow {
             hadWindows[pid] = true
         }
-        // Eligible on the window server's word, with no Accessibility window to
-        // hang the destroy notification on. Nothing else brings one back: the
-        // app-level notifications that would refresh only fire for a window
-        // appearing, and this one is already there.
+        // Every user window needs a destroy notification. Accessibility can
+        // list none despite the window server seeing one, or an individual
+        // registration can fail after the list succeeds.
         if AutoQuitSupport.needsWindowWatchRetry(registeredWindows: watchedWindows,
+                                                 listedWindows: windows.count,
                                                  foundUserWindow: foundUserWindow) {
             scheduleWindowWatchRetry(pid: pid)
         } else {
