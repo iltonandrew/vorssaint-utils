@@ -3974,6 +3974,12 @@ struct MetricsTests {
         expect(!AutoQuitSupport.needsWindowWatchRetry(registeredWindows: 0,
                                                       foundUserWindow: false),
                "an app with no window anywhere is not eligible and needs no watch")
+        expect(AutoQuitSupport.isWindowNotificationRegistered(.success),
+               "a window whose notification was accepted is watched")
+        expect(AutoQuitSupport.isWindowNotificationRegistered(.notificationAlreadyRegistered),
+               "a window already registered on this observer stays watched across refreshes")
+        expect(!AutoQuitSupport.isWindowNotificationRegistered(.cannotComplete),
+               "a window whose registration was refused is not watched")
         let autoQuitServiceSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/Services/AutoQuit/AutoQuitService.swift",
             encoding: .utf8)) ?? ""
@@ -3999,12 +4005,20 @@ struct MetricsTests {
             "windowWatchRetries.removeAll()",
             "NSWorkspace.activeSpaceDidChangeNotification",
             "rearmWindowWatchRetries()",
+            // The count the retry reads must be windows actually watched, not
+            // windows Accessibility listed: AXObserverAddNotification can
+            // refuse, and a refused registration is exactly the state the
+            // retry exists for. Only the destroyed notification decides it.
+            "if watch(window: window, observer: observer, refcon: refcon) { watchedWindows += 1 }",
+            "needsWindowWatchRetry(registeredWindows: watchedWindows,",
+            "if notification == kAXUIElementDestroyedNotification {",
+            "watched = AutoQuitSupport.isWindowNotificationRegistered(result)",
         ]
         let missingWindowWatchRetryCode = windowWatchRetryCode.filter {
             autoQuitServiceCodeLines(containing: $0).isEmpty
         }
         expect(missingWindowWatchRetryCode.isEmpty,
-               "the AutoQuit window-watch retry stays bounded, origin-based, and re-armed by Space changes: missing \(missingWindowWatchRetryCode)")
+               "the AutoQuit window-watch retry stays bounded, origin-based, re-armed by Space changes, and counts only windows whose destroy notification registered: missing \(missingWindowWatchRetryCode)")
         let closeCheckOffsetCode = [
             "private static let closeCheckOffsets: [TimeInterval] = [0.35, 1.0, 2.2]",
             "for offset in Self.closeCheckOffsets",

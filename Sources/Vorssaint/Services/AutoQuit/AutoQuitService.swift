@@ -399,8 +399,9 @@ final class AutoQuitService: ObservableObject {
         let appElement = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(appElement, 0.35)
         let windows = standardWindows(of: appElement)
+        var watchedWindows = 0
         for window in windows {
-            watch(window: window, observer: observer, refcon: refcon)
+            if watch(window: window, observer: observer, refcon: refcon) { watchedWindows += 1 }
         }
         recordMinimizedWindows(pid: pid, windows: windows)
         // The window-server scan is only needed when Accessibility handed us
@@ -414,7 +415,7 @@ final class AutoQuitService: ObservableObject {
         // hang the destroy notification on. Nothing else brings one back: the
         // app-level notifications that would refresh only fire for a window
         // appearing, and this one is already there.
-        if AutoQuitSupport.needsWindowWatchRetry(registeredWindows: windows.count,
+        if AutoQuitSupport.needsWindowWatchRetry(registeredWindows: watchedWindows,
                                                  foundUserWindow: foundUserWindow) {
             scheduleWindowWatchRetry(pid: pid)
         } else {
@@ -458,10 +459,19 @@ final class AutoQuitService: ObservableObject {
         }
     }
 
-    private func watch(window: AXUIElement, observer: AXObserver, refcon: UnsafeMutableRawPointer) {
+    /// Reports whether the window ended up watched for the one notification the
+    /// close path depends on. Only the destroyed one schedules a check, so it
+    /// alone decides: a window that refused the miniaturize notifications is
+    /// still a window auto-quit can act on.
+    private func watch(window: AXUIElement, observer: AXObserver, refcon: UnsafeMutableRawPointer) -> Bool {
+        var watched = false
         for notification in Self.windowNotifications {
-            AXObserverAddNotification(observer, window, notification as CFString, refcon)
+            let result = AXObserverAddNotification(observer, window, notification as CFString, refcon)
+            if notification == kAXUIElementDestroyedNotification {
+                watched = AutoQuitSupport.isWindowNotificationRegistered(result)
+            }
         }
+        return watched
     }
 
     private func pidForObserver(_ observer: AXObserver) -> pid_t? {

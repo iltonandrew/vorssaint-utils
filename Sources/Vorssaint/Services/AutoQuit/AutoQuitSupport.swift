@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
+import ApplicationServices
 import Foundation
 
 enum AutoQuitWindowEvent: Equatable {
@@ -62,6 +63,15 @@ enum AutoQuitSupport {
     static func needsWindowWatchRetry(registeredWindows: Int,
                                       foundUserWindow: Bool) -> Bool {
         registeredWindows == 0 && foundUserWindow
+    }
+
+    /// Whether adding a window notification left the observer watching for it.
+    /// Already registered is the ordinary answer, not a failure: every refresh
+    /// registers the windows it is already watching again, and counting those
+    /// as unwatched would zero the count above on every refresh and leave the
+    /// retry firing for as long as the app runs.
+    static func isWindowNotificationRegistered(_ result: AXError) -> Bool {
+        result == .success || result == .notificationAlreadyRegistered
     }
 
     static func shouldQuitAfterWindowCheck(hadWindows: Bool,
