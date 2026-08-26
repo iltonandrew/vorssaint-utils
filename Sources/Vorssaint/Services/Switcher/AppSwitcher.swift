@@ -104,10 +104,6 @@ final class AppSwitcher: ObservableObject {
     private var routePendingSessionStart: SwitcherPendingSessionStart?
     private var sessionStartGeneration: UInt64 = 0
 
-    /// The panel appears only after this delay, like the system switcher: a
-    /// quick ⌘Tab flick switches with no UI at all, which is what makes rapid
-    /// toggling feel instant instead of flashing a window.
-    private static let appearanceDelay: TimeInterval = 0.1
     private var pendingShow: DispatchWorkItem?
     /// True once the user moved the selection themselves.
     private var userNavigated = false
@@ -124,7 +120,7 @@ final class AppSwitcher: ObservableObject {
     private var sessionStartWindowID: CGWindowID?
     private var sessionSourceContext: SwitcherSourceContext?
     private var sessionShortcut: GlobalShortcut?
-    private var sessionScope: SwitcherSessionScope = .allApps
+    @Published private(set) var sessionScope: SwitcherSessionScope = .allApps
     private var shiftBackNavigationHeld = false
     /// Pressing Shift mid-session already steps back once, so the Tab landing
     /// in that same physical chord must not step again — but later Tabs during
@@ -799,6 +795,11 @@ final class AppSwitcher: ObservableObject {
                                   isFullscreen: source.isFullscreen)
         }
         sessionStartWindowID = source?.windowID
+        // The layout pass below reads usesWindowRow, which depends on the
+        // session scope; teardown resets it to .allApps, so assigning it after
+        // recomputeLayouts would size a window-scoped panel for the grouped
+        // layout on its first frame.
+        sessionScope = pending.scope
         recomputeLayouts(for: list)
         if !capturesPreviews {
             previews = [:]
@@ -824,7 +825,6 @@ final class AppSwitcher: ObservableObject {
                                     frontmostPID: SwitcherSupport.appPID(forFrontmost: reportedFrontPID,
                                                                          items: list))
         sessionShortcut = pending.shortcut
-        sessionScope = pending.scope
         shiftBackNavigationHeld = pending.reversed && pending.shortcut.shiftIsNavigationModifier
 
         if pending.additionalNavigation != 0 {
@@ -1301,7 +1301,9 @@ final class AppSwitcher: ObservableObject {
             self.showPanel()
         }
         pendingShow = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.appearanceDelay, execute: work)
+        let appearanceDelay = SwitcherSupport.appearanceDelay(
+            milliseconds: UserDefaults.standard.integer(forKey: DefaultsKey.switcherAppearanceDelay))
+        DispatchQueue.main.asyncAfter(deadline: .now() + appearanceDelay, execute: work)
     }
 
     private func showPanel() {
@@ -1359,7 +1361,8 @@ final class AppSwitcher: ObservableObject {
     private var usesWindowRow: Bool {
         SwitcherSupport.usesWindowRow(
             simpleMode: simpleModeEnabled,
-            mergeWindowsByApp: UserDefaults.standard.bool(forKey: DefaultsKey.switcherMergeTabs)
+            mergeWindowsByApp: UserDefaults.standard.bool(forKey: DefaultsKey.switcherMergeTabs),
+            sessionScope: sessionScope
         )
     }
 

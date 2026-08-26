@@ -359,6 +359,10 @@ struct MetricsTests {
                "clipboard preview uses Space after keyboard navigation")
         expect(!ClipboardHistoryPreview.handlesSpace(selectionIsVisible: true, hasModifiers: true),
                "clipboard preview never steals modified Space shortcuts")
+        expect(ClipboardHistoryEscape.action(batchCount: 0) == .hideWindow,
+               "Esc closes the panel when nothing is selected")
+        expect(ClipboardHistoryEscape.action(batchCount: 2) == .clearBatchSelection,
+               "Esc clears a batch selection before it closes the panel")
         expect(ClipboardHistoryEditing.canSave(original: "First draft", draft: "Second draft"),
                "clipboard text can save a real edit")
         expect(!ClipboardHistoryEditing.canSave(original: "Same", draft: "Same"),
@@ -1813,12 +1817,65 @@ struct MetricsTests {
         expect(registeredDefaults[DefaultsKey.switcherShowShortcutHints] as? Bool == true
                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.switcherShowShortcutHints),
                "App Switcher keeps shortcut hints visible by default and carries the choice in backups")
+        expect(registeredDefaults[DefaultsKey.switcherAppearanceDelay] as? Int
+               == SwitcherSupport.defaultAppearanceDelayMilliseconds
+               && SettingsBackupSupport.exportKeys().contains(DefaultsKey.switcherAppearanceDelay),
+               "App Switcher keeps the current appearance delay by default and carries the choice in backups")
+        expect(SwitcherSupport.appearanceDelayMillisecondsRange
+               .contains(SwitcherSupport.defaultAppearanceDelayMilliseconds),
+               "the default App Switcher appearance delay is one the slider accepts")
+        expect(SwitcherSupport.sanitizedAppearanceDelay(milliseconds: 0) == 0,
+               "the App Switcher can appear immediately when requested")
+        expect(SwitcherSupport.sanitizedAppearanceDelay(milliseconds: -1)
+               == SwitcherSupport.appearanceDelayMillisecondsRange.lowerBound
+               && SwitcherSupport.sanitizedAppearanceDelay(milliseconds: 9_000)
+               == SwitcherSupport.appearanceDelayMillisecondsRange.upperBound,
+               "an App Switcher appearance delay outside the range is clamped to it")
+        expectClose(SwitcherSupport.appearanceDelay(milliseconds: 125), 0.125,
+                    "the stored App Switcher milliseconds drive the panel timer in seconds")
         expect(SwitcherSupport.usesIconRowLayout(iconRowMode: false, simpleMode: true),
                "App Switcher simple mode always uses the app icon row")
-        expect(SwitcherSupport.usesWindowRow(simpleMode: true, mergeWindowsByApp: false)
-               && !SwitcherSupport.usesWindowRow(simpleMode: true, mergeWindowsByApp: true)
-               && !SwitcherSupport.usesWindowRow(simpleMode: false, mergeWindowsByApp: false),
-               "App Switcher simple mode lists windows unless one-entry-per-app is enabled")
+        expect(SwitcherSupport.usesWindowRow(simpleMode: true,
+                                             mergeWindowsByApp: false,
+                                             sessionScope: .allApps)
+               && !SwitcherSupport.usesWindowRow(simpleMode: true,
+                                                  mergeWindowsByApp: true,
+                                                  sessionScope: .allApps)
+               && SwitcherSupport.usesWindowRow(simpleMode: true,
+                                                 mergeWindowsByApp: true,
+                                                 sessionScope: .frontmostApp)
+               && !SwitcherSupport.usesWindowRow(simpleMode: false,
+                                                  mergeWindowsByApp: false,
+                                                  sessionScope: .allApps),
+               "App Switcher groups all-app sessions but keeps window-scoped simple sessions per-window")
+        // The session-start layout pass reads usesWindowRow, which now depends
+        // on the session scope; teardown resets the scope to .allApps, so the
+        // scope must be assigned before the layout pass or a window-scoped
+        // panel is sized for the grouped layout on its first frame.
+        let switcherSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/Switcher/AppSwitcher.swift",
+            encoding: .utf8)) ?? ""
+        // Ends on whatever declaration comes next rather than naming the
+        // neighbour: a rename would find no separator, leave the slice running
+        // to end of file, and quietly restore the whole-file search this
+        // replaced — a failure that makes the slice bigger, so an empty check
+        // cannot see it. Hence the count assertion below.
+        let beginSessionParts = (switcherSource.components(separatedBy: "private func beginPendingSession")
+            .last ?? "").components(separatedBy: "\n    private func ")
+        let beginSessionBody = beginSessionParts.first ?? ""
+        expect(beginSessionParts.count > 1,
+               "the App Switcher ordering guard finds the end of beginPendingSession")
+        let switcherCode = beginSessionBody
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        let scopeAssign = switcherCode.range(of: "sessionScope = pending.scope")
+        let startLayout = switcherCode.range(of: "recomputeLayouts(for: list)")
+        expect(!beginSessionBody.isEmpty,
+               "the App Switcher session-start ordering guard finds beginPendingSession")
+        expect(scopeAssign != nil && startLayout != nil
+               && scopeAssign!.lowerBound < startLayout!.lowerBound,
+               "the App Switcher session scope is assigned before the session-start layout pass")
         expect(!SwitcherSupport.usesAppGroupsForMainShortcut(iconRowLayout: true,
                                                               windowRow: true)
                && SwitcherSupport.usesAppGroupsForMainShortcut(iconRowLayout: true,
@@ -2541,10 +2598,10 @@ struct MetricsTests {
         // decision above is made consciously, never by omission.
         let releasePlist = NSDictionary(contentsOfFile: "Resources/Info.plist")
         let plistVersion = (releasePlist?["CFBundleShortVersionString"] as? String) ?? ""
-        expect(plistVersion == "3.3.3-beta.2",
+        expect(plistVersion == "3.3.3-beta.3",
                "bumping the app version requires re-deciding the support prompt pin above")
         let plistBuild = (releasePlist?["CFBundleVersion"] as? String) ?? ""
-        expect(plistBuild == "81",
+        expect(plistBuild == "82",
                "every app version needs its own incremented bundle build")
         expect(SupportUpdateIntroInfo.releaseVersion == "3.3.2",
                "the support prompt remains deliberately pinned to 3.3.2")
@@ -2783,6 +2840,47 @@ struct MetricsTests {
         expect(!StatusItemAnchorSupport.isTrustworthyStatusFrame(CGRect(x: 1135, y: 0, width: 38, height: 37),
                                                                  screenFrames: attachedScreens),
                "a frame down at the bottom of a screen is not a menu bar item")
+
+        // A screen showing a fullscreen window reserves no menu bar: its
+        // visible area is the whole frame. The band is a fixed thickness off
+        // the screen's own top edge, so an item revealed on hover still counts;
+        // a band measured as `frame.maxY - visibleFrame.maxY` would collapse to
+        // nothing here and decline the icon while it is visible and clickable.
+        let fullscreenScreen = CGRect(x: 0, y: 0, width: 1470, height: 956)
+        let fullscreenVisibleFrame = fullscreenScreen
+        expect(StatusItemAnchorSupport.menuBarBand > fullscreenScreen.maxY - fullscreenVisibleFrame.maxY,
+               "the menu bar band does not shrink to what a fullscreen screen reserves")
+        expect(StatusItemAnchorSupport.isTrustworthyStatusFrame(CGRect(x: 1135, y: 919, width: 38, height: 37),
+                                                                screenFrames: [fullscreenScreen]),
+               "a status item revealed over a fullscreen window is a trustworthy anchor")
+
+        // These AppKit owners are not part of the pure-helper test binary, so
+        // pin that neither caller can consume a parked status-item frame.
+        let statusAnchorAppDelegateSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/App/AppDelegate.swift",
+            encoding: .utf8)) ?? ""
+        let stripCommentLines: (String) -> String = {
+            $0.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+        }
+        // Sliced at the closing brace of the closure/function itself, so the
+        // slice can never run past it into an unrelated body that happens to
+        // carry the same words.
+        let shelfProviderCode = stripCommentLines((statusAnchorAppDelegateSource
+            .components(separatedBy: "ShelfService.shared.statusItemFrameProvider =").last ?? "")
+            .components(separatedBy: "\n        }").first ?? "")
+        let statusControllerSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/App/StatusItemController.swift",
+            encoding: .utf8)) ?? ""
+        let statusHitTestCode = stripCommentLines((statusControllerSource
+            .components(separatedBy: "func containsStatusItem(at screenPoint: NSPoint) -> Bool {").last ?? "")
+            .components(separatedBy: "\n    }").first ?? "")
+        let statusFrameCall = "StatusItemAnchorSupport.isTrustworthyStatusFrame("
+        expect(shelfProviderCode.contains("guard \(statusFrameCall)") && shelfProviderCode.contains("return nil"),
+               "the Shelf provider rejects an untrustworthy status-item frame")
+        expect(statusHitTestCode.contains(statusFrameCall) && statusHitTestCode.contains("return false"),
+               "status-item hit testing rejects an untrustworthy frame")
 
         // The panel keeps its top edge and its center while its content resizes.
         let panelArea = CGRect(x: 0, y: 0, width: 1470, height: 932)
@@ -3649,31 +3747,232 @@ struct MetricsTests {
                    ]) == ["com.vendor.editor"],
                "package removal preserves helper candidates while excluding an owner installed elsewhere")
         let uninstallIDs: Set<String> = ["com.vendor.editor", "com.vendor.editor.helper"]
-        let deepUninstall = UninstallerSupport.exactDeepCandidates(
-            home: URL(fileURLWithPath: "/Users/tester"),
-            bundleIDs: uninstallIDs,
-            darwinCache: URL(fileURLWithPath: "/private/var/folders/test/C"),
-            darwinTemp: URL(fileURLWithPath: "/private/var/folders/test/T"))
-        expect(deepUninstall.count == 10
-               && deepUninstall.contains(where: { $0.url.path == "/Users/tester/.config/com.vendor.editor" })
-               && deepUninstall.contains(where: { $0.url.path == "/private/var/folders/test/C/com.vendor.editor.helper" })
-               && !deepUninstall.contains(where: { $0.url.path.contains("Editor") }),
-               "deeper paths use exact owned identifiers and never the display name")
-        let hostUUID = "B787EFF9-B8E2-5296-96AF-DF9D3CD3AC4F"
-        expect(UninstallerSupport.matchesByHostPreference(
-                   "com.vendor.editor.\(hostUUID).plist", bundleIDs: uninstallIDs)
-               && !UninstallerSupport.matchesByHostPreference(
-                   "com.vendor.editor2.\(hostUUID).plist", bundleIDs: uninstallIDs)
-               && !UninstallerSupport.matchesByHostPreference(
-                   "com.vendor.editor.arbitrary.plist", bundleIDs: uninstallIDs),
-               "per-host preferences require an owned identifier and the system UUID format")
-        expect(UninstallerSupport.matchesGroupContainer("group.com.vendor.editor", bundleIDs: uninstallIDs)
-               && !UninstallerSupport.matchesGroupContainer("TEAM.shared.vendor", bundleIDs: uninstallIDs)
-               && !UninstallerSupport.matchesGroupContainer("group.com.vendor.editor.shared", bundleIDs: uninstallIDs),
-               "group containers require an exact app identifier instead of a shared vendor guess")
-        expect(UninstallerSupport.matchesLaunchItem("com.vendor.editor.helper.plist", bundleIDs: uninstallIDs)
-               && !UninstallerSupport.matchesLaunchItem("com.vendor.editor.helper.extra.plist", bundleIDs: uninstallIDs),
-               "launch items must exactly match an owned app or helper identifier")
+        let leftoverIdentity = UninstallerSupport.identity(
+            bundleIDs: uninstallIDs, displayNames: ["Editor", "Editor.app"])
+        expect(leftoverIdentity.nameTokens.contains("editor")
+               && !leftoverIdentity.nameTokens.contains("helper"),
+               "display names become match tokens and helper suffixes do not")
+        expect(UninstallerSupport.leftoverMatch("Editor", identity: leftoverIdentity) == .related
+               && UninstallerSupport.leftoverMatch("com.vendor.editor.plist", identity: leftoverIdentity) == .exact
+               && UninstallerSupport.leftoverMatch(
+                   "com.vendor.editor.B787EFF9-B8E2-5296-96AF-DF9D3CD3AC4F.plist",
+                   identity: leftoverIdentity) == .exact
+               && UninstallerSupport.leftoverMatch("COM.VENDOR.EDITOR.PLIST", identity: leftoverIdentity) == .exact
+               && UninstallerSupport.leftoverMatch("Editor.prefPane", identity: leftoverIdentity) == .related
+               && UninstallerSupport.leftoverMatch(
+                   "ABCD123456.com.vendor.editor", identity: leftoverIdentity) == .none
+               && UninstallerSupport.leftoverMatch(
+                   "group.com.vendor.editor", identity: leftoverIdentity) == .none
+               && UninstallerSupport.leftoverMatch(
+                   "com.wrapper.com.vendor.editor", identity: leftoverIdentity) == .none
+               && UninstallerSupport.leftoverMatch("Google", identity: leftoverIdentity) == .none
+               && UninstallerSupport.leftoverMatch("com.vendor.editor2", identity: leftoverIdentity) == .none
+               && UninstallerSupport.leftoverMatch(
+                   "com.vendor.editor.extra", identity: leftoverIdentity) == .related
+               && UninstallerSupport.leftoverMatch(
+                   "com.vendor.editor.helper.plist", identity: leftoverIdentity) == .exact
+               && UninstallerSupport.leftoverMatch("Editorial", identity: leftoverIdentity) == .related
+               && UninstallerSupport.leftoverMatch("Editor/Nested", identity: leftoverIdentity) == .none,
+               "owned identifiers are exact, while prefixes and names stay optional without unsigned wrappers")
+        let technicalIdentity = UninstallerSupport.technicalIdentity(leftoverIdentity)
+        expect(UninstallerSupport.leftoverMatch("Editor", identity: technicalIdentity) == .none
+               && UninstallerSupport.leftoverMatch(
+                   "com.vendor.editor.plist", identity: technicalIdentity) == .exact,
+               "sensitive roots accept technical ownership and never a display name")
+        expect(UninstallerSupport.leftoverEntryMatches(
+                   "Editor_2024-01-01-120000_Mac.plist",
+                   identity: leftoverIdentity, crashReporter: true)
+               && !UninstallerSupport.leftoverEntryMatches(
+                   "Editor_2024-01-01-120000_Mac.plist",
+                   identity: leftoverIdentity, crashReporter: false),
+               "crash reports may use the app name as a prefix only in that folder")
+        expect(UninstallerSupport.ownerBundleID(for: "com.vendor.editor.helper.plist",
+                                                identity: leftoverIdentity)
+                == "com.vendor.editor.helper"
+               && UninstallerSupport.ownerBundleID(for: "Editor", identity: leftoverIdentity)
+                == "com.vendor.editor",
+               "a helper identifier wins when it is in the name, otherwise the app identifier owns a name match")
+        expect(UninstallerSupport.normalizedToken("Example App 2") == "exampleapp2"
+               && UninstallerSupport.nameWithoutTrailingVersion("Example App 2") == "Example App"
+               && UninstallerSupport.nameWithoutTrailingVersion("Example App Nightly") == "Example App"
+               && UninstallerSupport.leftoverMatch(
+                   "Example App",
+                   identity: UninstallerSupport.identity(bundleIDs: ["com.vendor.exampleapp"],
+                                                         displayNames: ["Example App 2"])) == .related
+               && UninstallerSupport.leftoverEntryMatches(
+                   "ExampleApp2.plist",
+                   identity: UninstallerSupport.identity(bundleIDs: ["com.vendor.exampleapp"],
+                                                         displayNames: ["Example App 2"])),
+               "spaces and trailing version numbers do not hide a leftover named after the app")
+        expect(UninstallerSupport.identity(primaryBundleID: "com.vendor.browser",
+                                           bundleIDs: ["com.vendor.browser"],
+                                           displayNames: ["Vendor Browser"]).nameTokens.contains("browser"),
+               "the last identifier component is a token when it names the app")
+        let browserIdentity = UninstallerSupport.identity(primaryBundleID: "com.vendor.browser",
+                                                          bundleIDs: ["com.vendor.browser"],
+                                                          displayNames: ["Vendor Browser"])
+        let browserListings = [
+            UninstallerSupport.DirListing(name: "Vendor", children: [
+                UninstallerSupport.DirListing(name: "Browser", children: []),
+                UninstallerSupport.DirListing(name: "Docs", children: []),
+            ]),
+            UninstallerSupport.DirListing(name: "SuiteApp", children: [
+                UninstallerSupport.DirListing(name: "logs", children: []),
+            ]),
+            UninstallerSupport.DirListing(name: "com.vendor.browser", children: []),
+        ]
+        expect(UninstallerSupport.leftoverHitRecords(
+                   listings: browserListings,
+                   identity: browserIdentity,
+                   extraChildDepth: 1).map(\.path) == ["Vendor/Browser", "com.vendor.browser"],
+               "a leftover nested under a vendor folder is found without taking the whole vendor folder")
+        expect(UninstallerSupport.leftoverHitRecords(
+                   listings: browserListings,
+                   identity: browserIdentity,
+                   extraChildDepth: 0).map(\.path) == ["com.vendor.browser"],
+               "vendor nesting is not searched when the folder is a leaf location")
+        expect(UninstallerSupport.leftoverHitRecords(
+                   listings: [UninstallerSupport.DirListing(name: "Browser", children: [
+                       UninstallerSupport.DirListing(name: "com.vendor.browser", children: [])
+                   ])],
+                   identity: browserIdentity,
+                   extraChildDepth: 1).map(\.path) == ["Browser/com.vendor.browser"],
+               "an exact child wins over a broader related parent folder")
+        expect(UninstallerSupport.leftoverHitRecords(
+                   listings: [UninstallerSupport.DirListing(
+                       name: "Unrelated.component", children: [],
+                       bundleIdentifier: "com.vendor.browser")],
+                   identity: browserIdentity,
+                   extraChildDepth: 0).first?.confidence == .exact,
+               "plugin bundle metadata finds a component whose filename does not identify the app")
+        expect(UninstallerSupport.leftoverHitRecords(
+                   listings: [UninstallerSupport.DirListing(name: "Vendor", children: [
+                       UninstallerSupport.DirListing(name: "Mid", children: [
+                           UninstallerSupport.DirListing(name: "Editor", children: [])
+                       ])
+                   ])],
+                   identity: leftoverIdentity,
+                   extraChildDepth: 2).map(\.path) == ["Vendor/Mid/Editor"],
+               "Application Support is searched two levels for vendor/mid/app nesting")
+        let teamedIdentity = UninstallerSupport.identity(
+            bundleIDs: ["com.vendor.editor"], displayNames: [],
+            teamIDs: ["abcd123456"], groupIDs: ["group.com.vendor.editor"])
+        expect(UninstallerSupport.leftoverMatch("ABCD123456.com.other", identity: teamedIdentity) == .related
+               && UninstallerSupport.leftoverMatch(
+                   "ABCD123456.com.vendor.editor", identity: teamedIdentity) == .exact
+               && UninstallerSupport.leftoverMatch(
+                   "ZZZZ123456.com.vendor.editor", identity: teamedIdentity) == .none
+               && UninstallerSupport.leftoverMatch("group.com.vendor.editor", identity: teamedIdentity) == .exact
+               && UninstallerSupport.matchingGroupID(
+                   "group.com.vendor.editor", identity: teamedIdentity) == "group.com.vendor.editor"
+               && UninstallerSupport.containerMetadataMatches("com.vendor.editor",
+                                                              identity: leftoverIdentity) == .exact,
+               "team prefixes are related, app groups and container metadata keep the exact owner")
+        let leftoverFolders = UninstallerSupport.searchFolders(
+            home: URL(fileURLWithPath: "/Users/tester"), darwinCache: nil, darwinTemp: nil)
+        expect(leftoverFolders.contains(where: {
+                   $0.url.path == "/Users/tester/Library/Group Containers" && $0.kind == .containers
+                   && $0.readsContainerMetadata && !$0.allowsNameMatches
+                   && $0.requiresSignedGroup
+               })
+               && leftoverFolders.contains(where: {
+                   $0.url.path == "/Users/tester/Library/PreferencePanes" && $0.kind == .other
+               })
+               && leftoverFolders.contains(where: {
+                   $0.url.path.hasSuffix("CrashReporter") && $0.crashReporter
+               })
+               && leftoverFolders.contains(where: { $0.url.path == "/private/var/db/receipts" })
+               && leftoverFolders.contains(where: { $0.url.path.hasSuffix("/Automator") })
+               && leftoverFolders.contains(where: { $0.url.path.hasSuffix("/Frameworks") })
+               && leftoverFolders.contains(where: {
+                   $0.url.path == "/Users/tester/.config" && !$0.allowsNameMatches
+               })
+               && leftoverFolders.contains(where: {
+                   $0.url.path == "/Users/tester/Library/Preferences/ByHost"
+                       && !$0.allowsNameMatches
+               })
+               && leftoverFolders.contains(where: {
+                   $0.url.path == "/Users/tester/Library/Caches/com.apple.nsurlsessiond/Downloads"
+                       && !$0.allowsNameMatches
+               })
+               && !leftoverFolders.contains(where: { $0.url.path.contains("/Desktop") })
+               && leftoverFolders.contains(where: {
+                   $0.url.path == "/Users/tester/Library/Application Support" && $0.extraChildDepth == 2
+               }),
+               "leftover search covers Library support, plugins and receipts, not the Desktop")
+        let spotlightQuery = UninstallerSupport.leftoverSpotlightExpression(identity: leftoverIdentity) ?? ""
+        expect(spotlightQuery.contains("com.vendor.editor")
+               && spotlightQuery.contains("editor")
+               && UninstallerSupport.leftoverSpotlightPathIsAllowed(
+                    "/Users/tester/Library/Caches/Editor",
+                    roots: [URL(fileURLWithPath: "/Users/tester/Library")])
+               && !UninstallerSupport.leftoverSpotlightPathIsAllowed(
+                    "/Users/tester/Desktop/Editor",
+                    roots: [URL(fileURLWithPath: "/Users/tester/Library")]),
+               "Spotlight leftovers stay inside Library-like roots")
+        let spotlightGroupIdentity = UninstallerSupport.spotlightIdentity(
+            for: "/Users/tester/Library/Group Containers/group.com.vendor.editor",
+            identity: teamedIdentity)
+        let spotlightLaunchIdentity = UninstallerSupport.spotlightIdentity(
+            for: "/Users/tester/Library/LaunchAgents/Editor.plist",
+            identity: teamedIdentity)
+        expect(spotlightGroupIdentity.bundleIDs.isEmpty
+               && spotlightGroupIdentity.groupIDs == ["group.com.vendor.editor"]
+               && spotlightLaunchIdentity.nameTokens.isEmpty,
+               "Spotlight preserves signed-group and technical-only rules for sensitive roots")
+        let safetyFixture = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vorssaint-uninstaller-\(UUID().uuidString)", isDirectory: true)
+        let safetyRoot = safetyFixture.appendingPathComponent("root", isDirectory: true)
+        let outsideRoot = safetyFixture.appendingPathComponent("outside", isDirectory: true)
+        let safeFile = safetyRoot.appendingPathComponent("safe.plist")
+        let replacementFile = safetyRoot.appendingPathComponent("replacement.plist")
+        let outsideFile = outsideRoot.appendingPathComponent("foreign.plist")
+        let link = safetyRoot.appendingPathComponent("link", isDirectory: true)
+        try? FileManager.default.createDirectory(at: safetyRoot, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
+        _ = FileManager.default.createFile(atPath: safeFile.path, contents: Data("old".utf8))
+        _ = FileManager.default.createFile(atPath: replacementFile.path, contents: Data("new".utf8))
+        _ = FileManager.default.createFile(atPath: outsideFile.path, contents: Data("foreign".utf8))
+        try? FileManager.default.createSymbolicLink(at: link, withDestinationURL: outsideRoot)
+        let originalFileIdentity = UninstallerSupport.fileIdentity(at: safeFile)
+        let safePathWasAccepted = UninstallerSupport.removalPathIsSafe(safeFile, within: safetyRoot)
+        let linkedPathWasRejected = !UninstallerSupport.removalPathIsSafe(
+            link.appendingPathComponent("foreign.plist"), within: safetyRoot)
+        try? FileManager.default.removeItem(at: safeFile)
+        try? FileManager.default.moveItem(at: replacementFile, to: safeFile)
+        expect(safePathWasAccepted && linkedPathWasRejected
+               && originalFileIdentity != nil
+               && UninstallerSupport.fileIdentity(at: safeFile) != originalFileIdentity,
+               "removal stays inside its scan root, rejects symlink escapes and detects path replacement")
+        try? FileManager.default.removeItem(at: safetyFixture)
+        expect(CleanerSupport.bundleIDCandidate(fromEntryName: "com.vendor.editor.prefPane")
+                == "com.vendor.editor",
+               "preference panes map to their owning bundle identifier")
+        expect(CleanerSupport.bundleIDCandidate(fromEntryName:
+               "com.vendor.editor.Helper.B787EFF9-B8E2-5296-96AF-DF9D3CD3AC4F.plist")
+                == "com.vendor.editor.Helper"
+               && CleanerSupport.bundleIDCandidate(fromEntryName:
+               "com.vendor.B787EFF9-B8E2-5296-96AF-DF9D3CD3AC4F.editor") == nil
+               && CleanerSupport.bundleIDCandidate(fromEntryName: "ABCD123456.com.vendor.editor")
+                == "com.vendor.editor",
+               "ByHost UUIDs and team prefixes unwrap to the owning identifier")
+        expect(CleanerSupport.hasSharedContainerWrapper("group.com.vendor.editor")
+               && CleanerSupport.hasSharedContainerWrapper("ABCD123456.com.vendor.editor")
+               && !CleanerSupport.hasSharedContainerWrapper("abcd123456.com.vendor.editor")
+               && !CleanerSupport.hasSharedContainerWrapper("com.vendor.editor"),
+               "the general Cleaner leaves shared-container wrappers to signed app-specific scans")
+        let helperAppIdentity = UninstallerSupport.identity(
+            primaryBundleID: "com.vendor.chat",
+            bundleIDs: ["com.vendor.chat", "com.vendor.chat.helper.Renderer", "com.vendor.chat.helper.GPU"],
+            displayNames: ["Chat App"])
+        expect(!helperAppIdentity.nameTokens.contains("renderer")
+               && !helperAppIdentity.nameTokens.contains("gpu")
+               && helperAppIdentity.nameTokens.contains("chatapp")
+               && UninstallerSupport.leftoverMatch("renderer.log", identity: helperAppIdentity) == .none
+               && !UninstallerSupport.leftoverSpotlightPathIsAllowed(
+                    "/Users/tester/Library/Application Support/OtherApp/logs/sub/renderer.log",
+                    roots: [URL(fileURLWithPath: "/Users/tester/Library/Application Support")]),
+               "helper subprocess roles and deeply nested foreign logs are never claimed as leftovers")
         expect(CleanerSupport.isProtectedBundleID("systemgroup.com.apple.icloud.searchpartyd.sharedsettings")
                && CleanerSupport.isProtectedBundleID("243LU875E5.groups.com.apple.podcasts")
                && CleanerSupport.isProtectedBundleID("developer.apple.wwdc")
@@ -3688,8 +3987,8 @@ struct MetricsTests {
                == "com.apple.icloud.sharedsettings",
                "systemgroup wrappers unwrap to the real owner")
         expect(CleanerSupport.bundleIDCandidate(fromEntryName:
-               "com.vendor.editor.Helper.B787EFF9-B8E2-5296-96AF-DF9D3CD3AC4F.plist") == nil,
-               "names carrying a UUID are unattributable and never candidates")
+               "com.vendor.B787EFF9-B8E2-5296-96AF-DF9D3CD3AC4F.editor") == nil,
+               "a UUID in the middle of a name stays unattributable")
         expect(CleanerSupport.containsUUIDComponent("x.B787EFF9-B8E2-5296-96AF-DF9D3CD3AC4F")
                && !CleanerSupport.containsUUIDComponent("com.vendor.editor"),
                "the UUID detector matches dashed UUIDs and nothing else")
@@ -3980,8 +4279,10 @@ struct MetricsTests {
         expect(autoQuitServiceCode.contains(
                    "AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windows) == .cannotComplete"),
                "AutoQuit probes a watched app for liveness by asking for its windows")
-        expect(!autoQuitServiceCode.contains("appElement, kAXRoleAttribute"),
-               "AutoQuit never asks a watched app's application element for its role")
+        // The same read reached the application element a second way, up the
+        // parent chain of an element that never yields a window. Two files
+        // carried that walk, so both the rule and its guard are repo wide
+        // further down rather than a grep per copy here.
         expect(Defaults.sanitizedPanelItemOrder("uninstaller,homebrew,homebrew,bad",
                                                 defaultOrder: ["homebrew", "media", "uninstaller", "cleanURL", "cleaning"])
                == ["uninstaller", "homebrew", "media", "cleanURL", "cleaning"],
@@ -9146,6 +9447,25 @@ struct MetricsTests {
                                                     changelog: "## [2.17.4]\n\n" + inAppUpdateBody)
         expect(githubPreviewNotes.sections.first?.bulletItems == ["Update preview stays focused on changes."],
                "in-app update notes keep release changes after removing the footer")
+        let unreleasedChangelog = """
+        ## [Unreleased]
+
+        ### Added
+        - Feature pending release.
+
+        ## [2.17.4] - 2026-06-18
+
+        ### Fixed
+        - Shipped fix.
+        """
+        let unreleasedNotes = ReleaseNotes.notes(for: "Unreleased", changelog: unreleasedChangelog)
+        expect(unreleasedNotes.version == "Unreleased" && unreleasedNotes.date == nil
+               && unreleasedNotes.sections.first?.bulletItems == ["Feature pending release."],
+               "release notes parse unreleased blocks without dates")
+        expect(ReleaseNotes.allVersions(changelog: unreleasedChangelog) == ["2.17.4"],
+               "allVersions excludes the unreleased header")
+        expect(ReleaseNotes.rawNotes(for: "dev", changelog: unreleasedChangelog).contains("Feature pending release."),
+               "rawNotes for dev falls back to the unreleased block")
 
         // MARK: URL cleaning
 
@@ -9664,6 +9984,11 @@ struct MetricsTests {
                    && !strings.switcherShowShortcutHints.contains("—")
                    && !strings.switcherShowShortcutHintsCaption.contains("—"),
                    "\(prefix) App Switcher shortcut-hint labels are present without em dash")
+            expect(!strings.switcherAppearanceDelay.isEmpty
+                   && !strings.switcherAppearanceDelayCaption.isEmpty
+                   && !strings.switcherAppearanceDelay.contains("—")
+                   && !strings.switcherAppearanceDelayCaption.contains("—"),
+                   "\(prefix) App Switcher appearance-delay labels are present without em dash")
             expect(!strings.switcherWindowlessApps.isEmpty
                    && !strings.switcherWindowlessApps.contains("—"),
                    "\(prefix) App Switcher windowless apps title is present without em dash")
@@ -10583,6 +10908,13 @@ struct MetricsTests {
                 && FanControlPolicy.coolingTargetRPM(minimum: 5_800, maximum: 5_800,
                                                      level: 100) == nil,
                "manual targets map the full percentage scale into reported hardware bounds")
+        expect(FanControlPolicy.targetRPMMatches(target: 3_121, expected: 3_121)
+                && FanControlPolicy.targetRPMMatches(target: 3_122, expected: 3_121)
+                && FanControlPolicy.targetRPMMatches(target: 1_201.5, expected: 1_200)
+                && !FanControlPolicy.targetRPMMatches(target: 3_500, expected: 3_121)
+                && !FanControlPolicy.targetRPMMatches(target: 1_205, expected: 1_200)
+                && !FanControlPolicy.targetRPMMatches(target: .nan, expected: 1_200),
+               "fan target verification allows a narrow tolerance and rejects stale or malformed targets")
 
         let defaultCurve = FanControlConfiguration.defaultCurve
         expect(FanControlPolicy.validConfiguration(.manual(level: 0))
@@ -10636,6 +10968,24 @@ struct MetricsTests {
                     FanControlConfiguration.encodeCurves([defaultCurve]) ?? "") == [defaultCurve]
                 && FanControlConfiguration.decodeCurves("not json") == nil,
                "stored curves reject duplicate sensors, unsafe slopes and malformed data")
+        let addedPoints = FanControlPolicy.addingCurvePoint(to: defaultCurve.points)
+        expect(FanControlPolicy.nextCurvePoint(for: defaultCurve.points) == FanControlCurvePoint(temperature: 60, coolingLevel: 50)
+                && addedPoints == [
+                    FanControlCurvePoint(temperature: 50, coolingLevel: 0),
+                    FanControlCurvePoint(temperature: 60, coolingLevel: 50),
+                    FanControlCurvePoint(temperature: 70, coolingLevel: 100),
+                ]
+                && FanControlPolicy.validCurve(FanControlCurve(sensor: .hottestSoC, points: addedPoints ?? [])),
+               "adding a fan curve point calculates the intermediate point and produces a valid sorted curve")
+        var iterativePoints = defaultCurve.points
+        while let next = FanControlPolicy.addingCurvePoint(to: iterativePoints) {
+            iterativePoints = next
+        }
+        expect(iterativePoints.count == FanControlPolicy.maximumCurvePointCount
+                && FanControlPolicy.validCurve(FanControlCurve(sensor: .hottestSoC, points: iterativePoints))
+                && FanControlPolicy.nextCurvePoint(for: iterativePoints) == nil
+                && FanControlPolicy.addingCurvePoint(to: iterativePoints) == nil,
+               "adding fan curve points fills up to the maximum point limit with strictly valid curves")
         let m3FanTemperatures = FanControlPolicy.aggregatedTemperatures(
             cpuReadings: [("Te05", 44), ("Tf4E", 53), ("Tf4F", 76)],
             gpuReadings: [48],
@@ -11114,7 +11464,7 @@ struct MetricsTests {
                    "no em-dash in visible menu bar appearance strings (\(language.rawValue))")
             let appUpdateValues = Mirror(reflecting: FeatureStrings.appUpdates(language)).children
                 .compactMap { $0.value as? String }
-            expect(appUpdateValues.count == 32 && appUpdateValues.allSatisfy { !$0.isEmpty },
+            expect(appUpdateValues.count == 39 && appUpdateValues.allSatisfy { !$0.isEmpty },
                    "every app update string is set for \(language.rawValue)")
             expect(appUpdateValues.allSatisfy { !$0.contains("—") },
                    "no em-dash in visible app update strings (\(language.rawValue))")
@@ -11990,6 +12340,230 @@ struct MetricsTests {
         expect(TextSnippetSupport.expand("clip: {{clipboard}}", date: fixedDate,
                                          clipboard: "{{date:yyyy}}") == "clip: {{date:yyyy}}",
                "pasted clipboard text is never re-expanded")
+
+        // Timezone-qualified date variables
+        var tzTestCalendar = Calendar(identifier: .gregorian)
+        tzTestCalendar.timeZone = TimeZone(identifier: "UTC")!
+        let zonedDate = tzTestCalendar.date(from: DateComponents(year: 2025, month: 7, day: 1,
+                                                                 hour: 12, minute: 30, second: 15))!
+        expect(TextSnippetSupport.expand("{{datetime-tz(UTC):yyyy-MM-dd'T'HH:mm:ss}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "2025-07-01T12:30:15",
+               "a UTC-tagged datetime token formats in UTC regardless of the device's zone")
+        expect(TextSnippetSupport.expand("{{date-tz(UTC):yyyy-MM-dd}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS) == "2025-07-01",
+               "a UTC-tagged date token formats in UTC")
+        expect(TextSnippetSupport.expand("{{time-tz(UTC):HH:mm:ss}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS) == "12:30:15",
+               "a UTC-tagged time token formats in UTC")
+        expect(TextSnippetSupport.expand("{{datetime-tz(Asia/Tokyo):yyyy-MM-dd HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "2025-07-01 21:30",
+               "a token tagged with a specific zone shifts the clock by that zone's offset")
+        // Asserted against a fixed non-UTC zone rather than the device's:
+        // CI runners are UTC, where a leak and no leak look identical.
+        expect(TextSnippetSupport.expand("{{time-tz(Asia/Tokyo):HH:mm}} then {{time-tz(UTC):HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "21:30 then 12:30",
+               "a time zone on one token does not leak into a later token with its own")
+        // The likelier leak: one shared DateFormatter has to be reset back
+        // to the device zone for a plain token following a zoned one.
+        // Compared against the plain token's own output so it holds on
+        // CI's UTC runners as well as a machine in any other zone.
+        expect(TextSnippetSupport.expand("{{time-tz(Asia/Tokyo):HH:mm}}|{{time:HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "21:30|" + TextSnippetSupport.expand("{{time:HH:mm}}", date: zonedDate,
+                                                        clipboard: nil, locale: enUS),
+               "a zoned token does not leak into a later plain one")
+        expect(TextSnippetSupport.expand("{{datetime-tz(Not/ARealZone):yyyy-MM-dd HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "{{datetime-tz(Not/ARealZone):yyyy-MM-dd HH:mm}}",
+               "an unrecognized time zone stays a literal tag instead of quietly using the device zone")
+        expect(TextSnippetSupport.expand("{{datetime-tz(America/New York):yyyy-MM-dd HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "{{datetime-tz(America/New York):yyyy-MM-dd HH:mm}}",
+               "a space where the identifier needs an underscore is visibly wrong, not silently local")
+
+        // Date variable builder logic
+        expect(TextSnippetSupport.resolvedDatePattern(kind: .date, style: .iso8601,
+                                                       customPattern: "", locale: enUS) == "yyyy-MM-dd",
+               "ISO 8601 date style resolves to the fixed ISO date pattern")
+        expect(TextSnippetSupport.resolvedDatePattern(kind: .time, style: .iso8601,
+                                                       customPattern: "", locale: enUS) == "HH:mm:ssXXX",
+               "ISO 8601 time style resolves to the fixed ISO time pattern with an offset token")
+        expect(TextSnippetSupport.resolvedDatePattern(kind: .datetime, style: .iso8601,
+                                                       customPattern: "", locale: enUS)
+                == "yyyy-MM-dd'T'HH:mm:ssXXX",
+               "ISO 8601 datetime style resolves to the fixed ISO datetime pattern")
+        expect(TextSnippetSupport.resolvedDatePattern(kind: .date, style: .custom,
+                                                       customPattern: "dd/MM/yyyy", locale: enUS)
+                == "dd/MM/yyyy",
+               "custom style passes the raw pattern through untouched")
+        expect(!TextSnippetSupport.resolvedDatePattern(kind: .date, style: .medium,
+                                                        customPattern: "", locale: enUS).isEmpty,
+               "a system style resolves to some non-empty pattern (exact text is OS/locale dependent)")
+
+        expect(TextSnippetSupport.dateVariableText(kind: .date, style: .iso8601, customPattern: "",
+                                                    timeZoneIdentifier: nil, locale: enUS)
+                == "{{date:yyyy-MM-dd}}",
+               "building a token with no timezone omits the -tz(...) suffix")
+        expect(TextSnippetSupport.dateVariableText(kind: .datetime, style: .iso8601, customPattern: "",
+                                                    timeZoneIdentifier: "UTC", locale: enUS)
+                == "{{datetime-tz(UTC):yyyy-MM-dd'T'HH:mm:ssXXX}}",
+               "building a token with a timezone adds the -tz(...) suffix")
+        expect(TextSnippetSupport.dateVariableText(kind: .time, style: .custom, customPattern: "HH:mm",
+                                                    timeZoneIdentifier: "Asia/Tokyo", locale: enUS)
+                == "{{time-tz(Asia/Tokyo):HH:mm}}",
+               "a custom pattern with a timezone builds the same tagged token shape")
+
+        expect(TextSnippetSupport.dateVariablePreview(kind: .datetime, style: .iso8601, customPattern: "",
+                                                       timeZoneIdentifier: "UTC", date: zonedDate,
+                                                       locale: enUS) == "2025-07-01T12:30:15Z",
+               "the preview matches what expansion would produce for the same settings")
+        expect(TextSnippetSupport.dateVariablePreview(kind: .date, style: .custom, customPattern: "",
+                                                       timeZoneIdentifier: nil, date: zonedDate,
+                                                       locale: enUS).isEmpty,
+               "an empty custom pattern previews as empty rather than crashing on an empty date format")
+
+        // Date variable token detection
+        let tokenSample = "Hi {{date:MMM d}} and {{datetime-tz(UTC):yyyy}} end"
+        let insideDate = tokenSample.index(tokenSample.startIndex, offsetBy: 6)
+        let detectedDate = TextSnippetSupport.dateToken(in: tokenSample, at: insideDate)
+        expect(detectedDate?.kind == .date && detectedDate?.pattern == "MMM d"
+                && detectedDate?.timeZoneIdentifier == nil,
+               "the cursor inside a plain date token detects its kind and pattern")
+
+        let insideZoned = tokenSample.range(of: "UTC")!.lowerBound
+        let detectedZoned = TextSnippetSupport.dateToken(in: tokenSample, at: insideZoned)
+        expect(detectedZoned?.kind == .datetime && detectedZoned?.pattern == "yyyy"
+                && detectedZoned?.timeZoneIdentifier == "UTC",
+               "the cursor inside a timezone-qualified token detects its kind, pattern and zone")
+
+        expect(TextSnippetSupport.dateToken(in: tokenSample, at: tokenSample.startIndex) == nil,
+               "a cursor outside any tag detects nothing")
+
+        // The detected range is what the editor later splices over, and it
+        // reaches that splice as offsets so it cannot be read against a
+        // string it was not measured from.
+        expect(detectedDate.map {
+            String(tokenSample[TextSnippetSupport.selectionRange(in: tokenSample, offsets: $0.offsets)])
+        } == "{{date:MMM d}}",
+               "a detected token's offsets span exactly the token, braces included")
+        expect(detectedZoned.map {
+            String(tokenSample[TextSnippetSupport.selectionRange(in: tokenSample, offsets: $0.offsets)])
+        } == "{{datetime-tz(UTC):yyyy}}",
+               "a timezone-qualified token's offsets span the whole tag")
+
+        // The editor keeps the selection as offsets recorded when the
+        // selection last moved, so an edit that shortened the text since
+        // leaves them past the end. They must clamp, never trap.
+        let selectionText = "abcdef"
+        expect(TextSnippetSupport.selectionRange(in: selectionText, offsets: 2..<4)
+                == selectionText.index(selectionText.startIndex, offsetBy: 2)
+                    ..< selectionText.index(selectionText.startIndex, offsetBy: 4),
+               "an in-range selection maps to exactly those characters")
+        expect(TextSnippetSupport.selectionRange(in: selectionText, offsets: nil)
+                == selectionText.endIndex..<selectionText.endIndex,
+               "no tracked selection puts the caret at the end")
+        expect(TextSnippetSupport.selectionRange(in: "ab", offsets: 5..<9)
+                == "ab".endIndex..<"ab".endIndex,
+               "offsets left over from longer text clamp to the end instead of trapping")
+        expect(TextSnippetSupport.selectionRange(in: "abcd", offsets: 2..<99)
+                == "abcd".index("abcd".startIndex, offsetBy: 2)..<"abcd".endIndex,
+               "a selection running past the end clamps only its upper bound")
+        expect(TextSnippetSupport.selectionRange(in: "", offsets: 3..<7)
+                == "".startIndex..<"".startIndex,
+               "empty text clamps every offset to the start")
+        expect(TextSnippetSupport.selectionRange(in: "e\u{301}fg", offsets: 1..<2)
+                == "e\u{301}fg".index("e\u{301}fg".startIndex, offsetBy: 1)
+                    ..< "e\u{301}fg".index("e\u{301}fg".startIndex, offsetBy: 2),
+               "offsets count characters, so a combining mark stays with its base")
+
+        let unknownTagText = "see {{clipboard}} here"
+        let insideUnknown = unknownTagText.index(unknownTagText.startIndex, offsetBy: 6)
+        expect(TextSnippetSupport.dateToken(in: unknownTagText, at: insideUnknown) == nil,
+               "a cursor inside a non-date tag like clipboard detects nothing")
+
+        let unclosedText = "start {{date:yyyy no close"
+        let insideUnclosed = unclosedText.index(unclosedText.startIndex, offsetBy: 10)
+        expect(TextSnippetSupport.dateToken(in: unclosedText, at: insideUnclosed) == nil,
+               "a cursor inside an unclosed tag detects nothing")
+
+        expect(TextSnippetSupport.dateToken(in: "", at: "".startIndex) == nil,
+               "empty text detects nothing")
+
+        let afterFirstTag = tokenSample.range(of: "{{date:MMM d}}")!.upperBound
+        expect(TextSnippetSupport.dateToken(in: tokenSample, at: afterFirstTag) == nil,
+               "a cursor immediately after a token's closing braces is not inside that token")
+        let beforeFirstTag = tokenSample.range(of: "{{date:MMM d}}")!.lowerBound
+        expect(TextSnippetSupport.dateToken(in: tokenSample, at: beforeFirstTag) == nil,
+               "a cursor immediately before a token's opening braces is not inside that token")
+
+        // Date variable builder support (timezone search and style matching)
+        expect(TextSnippetSupport.matchingDateStyle(pattern: "yyyy-MM-dd", kind: .date, locale: enUS) == .iso8601,
+               "the ISO 8601 date pattern is recognized as that style")
+        expect(TextSnippetSupport.matchingDateStyle(pattern: "not a real pattern", kind: .date, locale: enUS) == .custom,
+               "an unrecognized pattern falls back to Custom")
+
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "").isEmpty,
+               "an empty query matches nothing")
+        // Asserted as containment, not equality: the set of identifiers
+        // comes from the OS timezone database, so a future release adding
+        // another "New York" zone must not fail this.
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "new york").contains("America/New_York"),
+               "a city name with a space matches the underscored identifier")
+        // A broad query matches well over a hundred zones. The obvious
+        // answer has to be reachable, and near the top: an alphabetical
+        // list capped for the picker used to drop it entirely.
+        let americaMatches = TextSnippetSupport.matchingTimeZoneIdentifiers(for: "america")
+        expect(americaMatches.contains("America/New_York"),
+               "a broad region query still lists the major city zones")
+        // "york" and the full identifier both narrow to a single match, so
+        // neither can observe the ordering. "st" matches dozens, most of
+        // which merely contain the letters, so only ranking puts a city
+        // beginning with them at the head.
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "st").first?
+                .split(separator: "/").last?.lowercased().hasPrefix("st") == true,
+               "a city starting with the query outranks zones that merely contain it")
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "america/new_york").first
+                == "America/New_York",
+               "an exactly typed identifier resolves to itself")
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "xyz-nonsense").isEmpty,
+               "a query matching nothing returns an empty list")
+
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "America/New_York") == "America/New_York",
+               "a full identifier resolves to itself")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "america/new york") == "America/New_York",
+               "the full identifier resolves case- and separator-insensitively")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "new york", matches: ["America/New_York"])
+                == "America/New_York",
+               "a city name that narrows the suggestion list to exactly one result resolves to it")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(
+                for: "new", matches: ["America/New_York", "Europe/Newtown"]) == nil,
+               "a query still matching several identifiers stays unresolved")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "pst") == "America/Los_Angeles",
+               "a common abbreviation resolves to its canonical identifier")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "utc") == "UTC",
+               "UTC resolves even though it is not itself in TimeZone.knownTimeZoneIdentifiers")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "budapest")?.hasSuffix("Budapest") == true,
+               "a query with no exact match but exactly one substring match resolves to it")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "america") == nil,
+               "a query matching many identifiers with no exact hit stays unresolved")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "xyz-nonsense") == nil,
+               "a query matching nothing is unresolved")
+
+        // A built token round-trips back through detection unchanged: this is
+        // exactly the path the Insert/Edit button depends on.
+        for kind in TextSnippetSupport.DateVariableKind.allCases {
+            for timeZoneIdentifier in [nil, "UTC", "Asia/Tokyo"] as [String?] {
+                let built = TextSnippetSupport.dateVariableText(kind: kind, style: .iso8601, customPattern: "",
+                                                                 timeZoneIdentifier: timeZoneIdentifier, locale: enUS)
+                let midpoint = built.index(built.startIndex, offsetBy: built.count / 2)
+                let detected = TextSnippetSupport.dateToken(in: built, at: midpoint)
+                expect(detected?.kind == kind && detected?.timeZoneIdentifier == timeZoneIdentifier,
+                       "a built \(kind.rawValue) token with timezone \(timeZoneIdentifier ?? "nil") round-trips through dateToken unchanged")
+            }
+        }
 
         // Per-snippet capitalization option (issue #304)
         let caseless = TextSnippet(name: "Caseless", trigger: ";email", replacement: "me@x.com",
@@ -12992,6 +13566,28 @@ struct MetricsTests {
         expect(ScreenCaptureTool.available(isAvailable: captureFeatures.contains)
                 == [.screenshot, .recording, .text, .color],
                "the capture chooser keeps a stable order for every installed mode")
+        // The capture tools are sections side by side rather than one
+        // switcher hiding three of them, so no page state decides which is
+        // on screen and every tool's own shortcut sits in its own section
+        // (issue #757).
+        let captureSettingsSources = ["ScreenCaptureSettings", "ScreenshotSettings",
+                                      "ScreenRecorderSettings"]
+            .map { name -> String in
+                let text = (try? String(
+                    contentsOfFile: "Sources/Vorssaint/UI/Settings/\(name).swift",
+                    encoding: .utf8)) ?? ""
+                return text.components(separatedBy: "\n")
+                    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                    .joined(separator: "\n")
+            }
+        expect(captureSettingsSources[0].contains("ForEach(availableTools")
+                && !captureSettingsSources[0].contains("selectedTool"),
+               "the capture page shows every installed tool instead of one at a time")
+        let shortcutTools = Set(captureSettingsSources.joined(separator: "\n")
+            .components(separatedBy: "ToolShortcutRows(tool: .").dropFirst()
+            .map { String($0.prefix { $0.isLetter }) })
+        expect(shortcutTools == Set(ScreenCaptureTool.allCases.map { "\($0)" }),
+               "every capture tool carries its own shortcut in its own section")
         expect(!ScreenshotSupport.captureAvailabilityChanged(
                     activeTools: [.screenshot, .recording],
                     availableTools: [.screenshot, .recording])
@@ -13844,6 +14440,63 @@ struct MetricsTests {
         }
         expect(!appSources.isEmpty && unboundedOperationWaits.isEmpty,
                "no operation queue is waited on without a deadline: \(unboundedOperationWaits)")
+
+        // Asking an application element for its role switches a Chromium app's
+        // renderers into full accessibility mode for the rest of the process's
+        // life (issue #953). It was fixed at the liveness probe, then found
+        // again in the walk up an element's parents, where the chain above a
+        // window is the application element — so the rule is the absence of
+        // that read anywhere, rather than one grep per door somebody noticed.
+        // This is a text scan, not dataflow: it knows an element is an
+        // application element only when the same file names it in a `let x =
+        // AXUIElementCreateApplication(...)`, and it reads the role attribute
+        // and its element off one line. An application element handed to a
+        // helper, stored in a property, or passed inline is still on review to
+        // catch; both reads found so far were written the direct way.
+        var applicationRoleReads: [String] = []
+        for file in appSources.sorted() {
+            guard let source = try? String(contentsOfFile: "Sources/Vorssaint/\(file)",
+                                           encoding: .utf8) else { continue }
+            let lines = source.components(separatedBy: "\n")
+            var applicationElements: Set<String> = []
+            for line in lines where line.contains("AXUIElementCreateApplication(") {
+                let assigned = (line.components(separatedBy: "=").first ?? "")
+                    .trimmingCharacters(in: .whitespaces)
+                    .components(separatedBy: " ")
+                guard assigned.count == 2, assigned[0] == "let" || assigned[0] == "var" else { continue }
+                applicationElements.insert(assigned[1])
+            }
+            for (index, line) in lines.enumerated()
+            where line.contains("kAXRoleAttribute")
+                && !line.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+                && applicationElements.contains(where: { line.contains("(\($0), ") }) {
+                applicationRoleReads.append("\(file):\(index + 1)")
+            }
+        }
+        expect(!appSources.isEmpty && applicationRoleReads.isEmpty,
+               "no application element is ever asked for its role: \(applicationRoleReads)")
+        // The scan above cannot see the other way in: a walk up kAXParent asks
+        // `parent` for its role, and the application element is what sits above
+        // the last window, so the element it reads is never named after one.
+        // Two files carried the same walk, so the rule is that anywhere doing
+        // it stops at the application element first, rather than a pin per copy.
+        var unguardedParentWalks: [String] = []
+        for file in appSources.sorted() {
+            guard let source = try? String(contentsOfFile: "Sources/Vorssaint/\(file)",
+                                           encoding: .utf8) else { continue }
+            let lines = source.components(separatedBy: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            // Per occurrence and in order: a guard sitting anywhere in the file
+            // would let a second walk go unguarded, and one written after the
+            // read would let the read happen first, which is the whole failure.
+            for (index, line) in lines.enumerated() where line.contains("role(of: parent)") {
+                let guarded = lines[max(0, index - 3)..<index]
+                    .contains { $0.contains("isApplicationElement(parent)") }
+                if !guarded { unguardedParentWalks.append("\(file):\(index + 1)") }
+            }
+        }
+        expect(!appSources.isEmpty && unguardedParentWalks.isEmpty,
+               "a walk up the parent chain stops at the application element: \(unguardedParentWalks)")
         expect(ScratchpadRetention.sanitized("day") == .day
                 && ScratchpadRetention.sanitized("week") == .week
                 && ScratchpadRetention.sanitized("month") == .month
@@ -14520,6 +15173,50 @@ struct MetricsTests {
         expect(soloState.decide(.triggerUp(timestamp: 4_000_000_000)) == .swallow,
                "holding it together with another modifier is not a tap either")
 
+        // Drag chords read their modifiers off the mouse-down, not off any
+        // keyboard event (#888), so the service must classify mouse presses
+        // like other keys and stamp them from a tap at the HID stage — the
+        // one place guaranteed to run before every session tap that reads
+        // the flags. The service file is not in this binary; pin the shape.
+        let superKeyServiceSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/SuperKey/SuperKeyService.swift",
+            encoding: .utf8)) ?? ""
+        let superKeyServiceCode = superKeyServiceSource
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        expect(superKeyServiceCode.contains(".leftMouseDown, .rightMouseDown, .otherMouseDown")
+               && superKeyServiceCode.contains("mouseDownTypes.reduce(CGEventMask(0))")
+               && superKeyServiceCode.contains("mouseDownTypes.contains(type) { return .otherKey }")
+               && superKeyServiceCode.range(of: "tap: .cghidEventTap") != nil,
+               "every mouse press while the super key is held carries the modifiers, stamped at the HID stage")
+        // A mouse event carries no keycode of its own: the field reads back as
+        // 0 on one, which is the keycode for A. The read lives inside classify,
+        // below the line that answers the mouse types, so no caller holds a
+        // phantom key it could hand to something that looks keys up.
+        let keycodeReads = superKeyServiceCode
+            .components(separatedBy: ".keyboardEventKeycode").count - 1
+        let mouseAnswer = superKeyServiceCode.range(of: "mouseDownTypes.contains(type)")?.lowerBound
+        let keycodeRead = superKeyServiceCode.range(of: ".keyboardEventKeycode")?.lowerBound
+        expect(keycodeReads == 1
+               && mouseAnswer.flatMap({ answer in keycodeRead.map { answer < $0 } }) == true,
+               "a mouse press is answered before the super key ever reads a keycode")
+        // A refused mouse tap counts as dead so the health check rebuilds it,
+        // but exactly once: the rebuild takes the healthy keyboard tap down
+        // with it, and a system that refuses refuses the retry too, so an
+        // unbounded flag would hiccup super-key input at whatever rate
+        // syncWithPreferences fires. The count has to outlive the teardown its
+        // own value asked for, so the only place it is put back to zero is its
+        // own declaration — never the tap thread's reset block, which the
+        // rebuild runs and which would start the loop over.
+        let refusalResets = superKeyServiceCode
+            .components(separatedBy: "mouseTapRefusals = 0").count - 1
+        expect(superKeyServiceCode.contains("?? (mouseTapRefusals == 1)")
+               && superKeyServiceCode.contains(
+                   "mouseTapRefusals = mouseTap == nil ? self.mouseTapRefusals + 1 : 0")
+               && refusalResets == 1,
+               "a refused mouse tap is worth one rebuild, and the count survives it")
+
         var noRepeatHoldState = SuperKeySupport.State()
         _ = noRepeatHoldState.decide(.triggerDown(
             isRepeat: false, hasPrimaryModifiers: false, timestamp: 6_000_000_000
@@ -15163,6 +15860,20 @@ struct MetricsTests {
             SettingsBackupSupport.formatVersionKey: 99,
             SettingsBackupSupport.settingsKey: [String: Any](),
         ]) == nil, "a future format version is rejected")
+        expect(SettingsBackupSupport.formatVersion(from: [SettingsBackupSupport.formatVersionKey: 1]) == 1
+                && SettingsBackupSupport.formatVersion(from: [SettingsBackupSupport.formatVersionKey: NSNumber(value: 1)]) == 1
+                && SettingsBackupSupport.formatVersion(from: [SettingsBackupSupport.formatVersionKey: "1"]) == 1
+                && SettingsBackupSupport.formatVersion(from: [SettingsBackupSupport.formatVersionKey: " 1 \n"]) == 1
+                && SettingsBackupSupport.formatVersion(from: [SettingsBackupSupport.formatVersionKey: "invalid"]) == nil,
+               "backup format version accepts integer, NSNumber and string representations")
+        let stringVersionBackup: [String: Any] = [
+            SettingsBackupSupport.formatVersionKey: "1",
+            SettingsBackupSupport.settingsKey: [
+                DefaultsKey.smoothScrollStep: 60,
+            ] as [String: Any],
+        ]
+        expect(SettingsBackupSupport.sanitizedSettings(from: stringVersionBackup)?[DefaultsKey.smoothScrollStep] as? Int == 60,
+               "a backup with a string-encoded format version restores correctly")
 
         // A backup file can be edited by hand, and a value of the wrong shape
         // would reach code that trusts its own settings.
@@ -15494,6 +16205,89 @@ struct MetricsTests {
                "another platform's listing is not the installed Mac app's version")
         expect(AppUpdatesSupport.parseStoreLookup(Data("not json".utf8)).isEmpty,
                "a broken store answer yields nothing instead of throwing")
+
+        let onlineCatalogBody = Data(#"""
+        [
+          {"token":"notes-stable","version":"2.0,revision","artifacts":[{"uninstall":[{"quit":"com.example.notes"}]},{"app":["Notes.app"],"target":"/Applications/Notes.app"}],"depends_on":{"macos":{">=":["14"]}}},
+          {"token":"notes-preview","version":"3.0","artifacts":[{"uninstall":[{"quit":["com.example.notes.preview"]}]},{"app":["Notes.app"]}],"depends_on":{"macos":{">=":["14"]}}},
+          {"token":"writer","version":"2.0","artifacts":[{"app":["Writer Source.app",{"target":"Writer.app"}],"target":"/Applications/Writer.app"}]},
+          {"token":"duplicate-one","version":"2.0","artifacts":[{"uninstall":[{"quit":"com.example.one"}]},{"app":["Duplicate.app"]}]},
+          {"token":"duplicate-two","version":"2.0","artifacts":[{"uninstall":[{"quit":"com.example.two"}]},{"app":["Duplicate.app"]}]},
+          {"token":"future","version":"4.0","artifacts":[{"app":["Future.app"]}],"depends_on":{"macos":{">=":["26"]}}},
+          {"token":"exact","version":"5.0","artifacts":[{"app":["Exact.app"]}],"depends_on":{"macos":{"==":["15"]}}},
+          {"token":"rolling","version":"latest","artifacts":[{"app":["Rolling.app"]}]},
+          {"token":"case-sensitive","version":"2.0","artifacts":[{"app":["Case.app"]}]},
+          {"token":"older","version":"1.0","artifacts":[{"app":["Older.app"]}]},
+          {"token":"own-tool","version":"9.0","artifacts":[{"app":["Own.app"]}]}
+        ]
+        """#.utf8)
+        let onlineCatalog = AppUpdatesSupport.parseOnlineCatalog(onlineCatalogBody) ?? []
+        expect(onlineCatalog.count == 11
+                && onlineCatalog.first?.bundleIDs == ["com.example.notes"]
+                && onlineCatalog.first?.minimumOSVersions == ["14"]
+                && onlineCatalog.first { $0.token == "writer" }?.appNames == ["Writer.app"],
+               "the online catalog keeps final app names, explicit bundle identifiers and OS rules")
+        expect(AppUpdatesSupport.parseOnlineCatalogResponse(onlineCatalogBody, statusCode: 200)?.count == 11
+                && AppUpdatesSupport.parseOnlineCatalogResponse(nil, statusCode: 200) == nil
+                && AppUpdatesSupport.parseOnlineCatalogResponse(onlineCatalogBody, statusCode: 500) == nil
+                && AppUpdatesSupport.parseOnlineCatalogResponse(Data("broken".utf8), statusCode: 200) == nil,
+               "missing, failed and malformed network responses never become successful empty coverage")
+
+        let onlineApps = [
+            AppUpdatesSupport.InstalledApp(name: "Notes", bundleID: "com.example.notes",
+                                           path: "/Applications/Notes.app", version: "1.0",
+                                           isFromAppStore: false),
+            AppUpdatesSupport.InstalledApp(name: "Writer", bundleID: "com.example.writer",
+                                           path: "/Applications/Writer.app", version: "1.0",
+                                           isFromAppStore: false),
+            AppUpdatesSupport.InstalledApp(name: "Duplicate", bundleID: "com.example.other",
+                                           path: "/Applications/Duplicate.app", version: "1.0",
+                                           isFromAppStore: false),
+            AppUpdatesSupport.InstalledApp(name: "Future", bundleID: "com.example.future",
+                                           path: "/Applications/Future.app", version: "1.0",
+                                           isFromAppStore: false),
+            AppUpdatesSupport.InstalledApp(name: "Exact", bundleID: "com.example.exact",
+                                           path: "/Applications/Exact.app", version: "1.0",
+                                           isFromAppStore: false),
+            AppUpdatesSupport.InstalledApp(name: "Rolling", bundleID: "com.example.rolling",
+                                           path: "/Applications/Rolling.app", version: "1.0",
+                                           isFromAppStore: false),
+            AppUpdatesSupport.InstalledApp(name: "Case", bundleID: "com.example.case",
+                                           path: "/Applications/case.app", version: "1.0",
+                                           isFromAppStore: false),
+            AppUpdatesSupport.InstalledApp(name: "Older", bundleID: "com.example.older",
+                                           path: "/Applications/Older.app", version: "2.0",
+                                           isFromAppStore: false),
+            AppUpdatesSupport.InstalledApp(name: "Own", bundleID: "com.example.own",
+                                           path: "/Applications/Own.app", version: "1.0",
+                                           isFromAppStore: false),
+        ]
+        let onlineRows = AppUpdatesSupport.onlineCatalogUpdates(
+            apps: onlineApps, catalog: onlineCatalog, operatingSystemVersion: "15.7",
+            ignoredTokens: ["own-tool"])
+        expect(Set(onlineRows.map(\.name)) == ["Notes", "Writer", "Exact"]
+                && onlineRows.allSatisfy { $0.source == .onlineCatalog && !$0.isSelectable },
+               "online matching requires an exact unique bundle name, uses an explicit ID to resolve ambiguity and keeps rows action-only")
+        expect(!onlineRows.contains { $0.name == "Duplicate" || $0.name == "Future"
+                || $0.name == "Rolling" || $0.name == "Case" || $0.name == "Older"
+                || $0.name == "Own" },
+               "ambiguous, incompatible, uncomparable, differently cased, current and ignored catalog entries stay out")
+        let externalCandidates = AppUpdatesSupport.onlineCatalogCandidates(
+            apps: [onlineApps[0],
+                   AppUpdatesSupport.InstalledApp(name: "Store", bundleID: "com.example.store",
+                                                  path: "/Applications/Store.app", version: "1.0",
+                                                  isFromAppStore: true),
+                   onlineApps[1]],
+            coveredPaths: [onlineApps[1].path])
+        expect(externalCandidates == [onlineApps[0]],
+               "store receipts and package-managed paths never reach the online catalog source")
+
+        let listWithOnline = AppUpdatesSupport.merged(mergedRows, onlineRows)
+        let selectionWithOnline = AppUpdatesSupport.reconciledSelection(
+            previous: Set(onlineRows.map(\.id)), knownIDs: [], items: listWithOnline)
+        expect(selectionWithOnline == Set(mergedRows.map(\.id))
+                && listWithOnline.suffix(onlineRows.count).allSatisfy { $0.source == .onlineCatalog },
+               "online rows remain outside bulk selection and follow the managed sources in the list")
         let discoveredPaths = InstalledApps.applicationScanPaths(
             folderPaths: ["/Applications/Editor.app",
                           "/System/Applications/System Utility.app",
@@ -15602,11 +16396,13 @@ struct MetricsTests {
                "the background check starts off")
         expect(Defaults.registeredDefaults[DefaultsKey.appUpdatesIncludeHomebrewApps] as? Bool == true
                 && Defaults.registeredDefaults[DefaultsKey.appUpdatesIncludeAppStore] as? Bool == true
+                && Defaults.registeredDefaults[DefaultsKey.appUpdatesIncludeOnlineCatalog] as? Bool == true
                 && Defaults.registeredDefaults[DefaultsKey.appUpdatesNotify] as? Bool == true
                 && Defaults.registeredDefaults[DefaultsKey.panelUtilityAppUpdates] as? Bool == true,
                "the app update defaults are registered")
         expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.appUpdatesCheckFrequency)
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.appUpdatesIncludeHomebrewApps)
+                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.appUpdatesIncludeOnlineCatalog)
                 && !SettingsBackupSupport.exportKeys().contains(DefaultsKey.appUpdatesLastCheck),
                "app update preferences travel in a backup, the last check does not")
         expect(AppFeature.appUpdates.enabledKeys.isEmpty
@@ -16054,6 +16850,16 @@ struct MetricsTests {
                                                  available: ["app.chat", "action.a"])
                 == ["app.chat"],
                "the empty bar leads with the pins that still exist")
+        expect(CommandBarPreferences.listedPins(
+                    ["action.cleaningMode", "app.chat", "settings.cleaningMode"],
+                    present: ["app.chat"])
+                == ["app.chat"],
+               "an uninstalled feature is not listed as a pin")
+        expect(CommandBarPreferences.listedPins(
+                    ["action.cleaningMode", "app.gone"],
+                    present: ["action.cleaningMode"])
+                == ["action.cleaningMode", "app.gone"],
+               "an app that left this Mac still appears so its pin can be removed")
         expect(CommandBarPreferences.pinTieBreak < 700,
                "a pin breaks a tie and never jumps over a better match")
         expect(CommandBarPreferences.aliasHit("codex", query: "codex") == .exact
