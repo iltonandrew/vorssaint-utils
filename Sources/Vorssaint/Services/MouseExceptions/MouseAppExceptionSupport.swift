@@ -147,8 +147,11 @@ enum MouseAppExceptionSupport {
     /// straight from disk is reported as com.example.withid, while a runtime
     /// shipped deeper in that same bundle — the Java a game launcher starts
     /// (issue #1009) — is reported with no identifier at all and stays a path.
-    /// Walking up to any enclosing .app instead would file that Java under the
-    /// launcher and break the case this all exists for.
+    /// Walking up to any enclosing .app when storing would file that Java
+    /// under the launcher and break the case this all exists for — a rule
+    /// about the picked identity only: the source scope walks up on purpose
+    /// (sourceBundleIdentifiers), so a helper inherits the exception of the
+    /// app it shipped inside.
     static func pickedIdentity(for url: URL) -> String? {
         // Pointed at the bundle: its identifier, or the binary it runs when
         // the Info.plist names none, which is what the system reports for it.

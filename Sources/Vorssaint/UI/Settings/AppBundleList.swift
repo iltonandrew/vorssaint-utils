@@ -62,8 +62,28 @@ struct AppBundleList<Accessory: View>: View {
                     Image(nsImage: InstalledApps.icon(for: bundleID))
                         .resizable()
                         .frame(width: 18, height: 18)
-                    Text(InstalledApps.name(for: bundleID))
-                        .lineLimit(1)
+                    if let location = InstalledApps.location(for: bundleID) {
+                        // Path identities all display the file's own name —
+                        // every bundled runtime is "java" (issue #1009) — so
+                        // the directory is what tells the rows apart. Sibling
+                        // runtimes share a long common prefix and differ in
+                        // the middle or tail, so the head is what truncation
+                        // must drop: cutting the middle would hide exactly
+                        // the component that differs.
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(InstalledApps.name(for: bundleID))
+                                .lineLimit(1)
+                            Text(location)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.head)
+                        }
+                        .help(bundleID)
+                    } else {
+                        Text(InstalledApps.name(for: bundleID))
+                            .lineLimit(1)
+                    }
                     Spacer(minLength: 8)
                     accessory(bundleID)
                     Button {
@@ -110,8 +130,11 @@ struct AppBundleList<Accessory: View>: View {
 
     private var sortedBundleIDs: [String] {
         bundleIDs.sorted {
-            InstalledApps.name(for: $0).localizedCaseInsensitiveCompare(InstalledApps.name(for: $1))
-                == .orderedAscending
+            let byName = InstalledApps.name(for: $0)
+                .localizedCaseInsensitiveCompare(InstalledApps.name(for: $1))
+            // Equal display names — three runtimes all named "java" — fall
+            // back to the identity so the rows hold one order between renders.
+            return byName == .orderedSame ? $0 < $1 : byName == .orderedAscending
         }
     }
 

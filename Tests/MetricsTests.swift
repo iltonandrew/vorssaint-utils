@@ -14724,6 +14724,14 @@ struct MetricsTests {
                 == ["/opt/game/bin/java ", "com.example.a"],
                "a stored path keeps its exact file name while an identifier is trimmed")
 
+        expect(InstalledApps.location(for: "com.example.modeler") == nil,
+               "a bundle identifier names its app on its own and carries no location")
+        expect(InstalledApps.location(for: NSHomeDirectory() + "/runtimes/zulu-8.jre/bin/java")
+                == "~/runtimes/zulu-8.jre/bin",
+               "a path identity is located by its directory, spelled from home")
+        expect(InstalledApps.location(for: "/opt/game/bin/java") == "/opt/game/bin",
+               "a path outside home keeps its absolute directory")
+
         // Both ends of that agreement live outside this binary: the picker
         // stores from AppBundleList and the taps match from MouseAppExceptions.
         // An identity resolved at one end and taken raw at the other silently
@@ -14754,6 +14762,23 @@ struct MetricsTests {
         }
         expect(!resolvedAddSites.isEmpty && rawAddSites.isEmpty,
                "every value the picker adds is one the support enum resolved: \(rawAddSites)")
+
+        // A list row's location caption is what tells path identities apart —
+        // every bundled runtime displays as "java" (issue #1009) — and sibling
+        // runtimes differ only after a long shared directory prefix, so the
+        // caption must truncate from the HEAD: cutting the middle or tail
+        // would hide the one component that differs. AppBundleList is not
+        // compiled into this binary, so the shape is pinned here.
+        var locationSites: [Int] = []
+        var headTruncationSites: [Int] = []
+        for (index, line) in pickerLines.enumerated()
+        where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+            if line.contains("InstalledApps.location(for:") { locationSites.append(index + 1) }
+            if line.contains(".truncationMode(.head)") { headTruncationSites.append(index + 1) }
+        }
+        expect(!locationSites.isEmpty && !headTruncationSites.isEmpty,
+               "a path identity row shows where its file sits and truncates from the head: "
+                   + "\(locationSites) \(headTruncationSites)")
 
         var resolvedMatchSites: [String] = []
         var rawMatchSites: [String] = []

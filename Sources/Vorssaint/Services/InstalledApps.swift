@@ -36,6 +36,16 @@ enum InstalledApps {
         return URL(fileURLWithPath: identity)
     }
 
+    /// Where a path identity's file sits, spelled from home. Every bundled
+    /// Java runtime is displayed as "java" (issue #1009), so the directory is
+    /// what tells two of them apart in a list. A bundle identifier names its
+    /// app on its own and carries no location.
+    static func location(for identity: String) -> String? {
+        guard MouseAppExceptionSupport.isExecutablePathIdentity(identity) else { return nil }
+        return ((identity as NSString).deletingLastPathComponent as NSString)
+            .abbreviatingWithTildeInPath
+    }
+
     static func name(for bundleID: String) -> String {
         guard let url = fileURL(forIdentity: bundleID) else { return bundleID }
         return FileManager.default.displayName(atPath: url.path)
