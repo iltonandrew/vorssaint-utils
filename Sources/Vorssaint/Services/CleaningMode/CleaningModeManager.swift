@@ -45,9 +45,10 @@ final class CleaningModeManager: ObservableObject {
     /// pressing Escape slower than once per two seconds could never unlock
     /// (progress restarted at 1 on every press). The window's one remaining job
     /// is rejecting five isolated Esc-only contacts spread across a long wipe:
-    /// other keys reset the count and auto-repeat never counts, but a cloth can
-    /// strike Escape alone. Widening to 6s weakens that guard on purpose —
-    /// a gesture a deliberate user cannot complete protects nothing.
+    /// every other key resets the count — modifiers included, they reach the
+    /// counter as flags-changed events — and auto-repeat never counts, but a
+    /// cloth can strike Escape alone. Widening to 6s weakens that guard on
+    /// purpose — a gesture a deliberate user cannot complete protects nothing.
     private lazy var unlock = CleaningUnlockCounter(requiredKeyCode: Self.escapeKeyCode,
                                                     threshold: unlockThreshold,
                                                     pressWindow: 6.0)
@@ -158,6 +159,15 @@ final class CleaningModeManager: ObservableObject {
             let code = event.getIntegerValueField(.keyboardEventKeycode)
             let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
             registerUnlockKeyDown(code: code, isRepeat: isRepeat)
+        } else if type == .flagsChanged {
+            // Shift, control, option, command, fn and caps lock arrive here rather
+            // than as key-downs, and they are the keys nearest Escape — a cloth
+            // resting on them must reset the count like any other key. Both the
+            // press and the release report the same key code and neither is
+            // Escape, so each one resets and the pair is idempotent. Modifiers
+            // never auto-repeat.
+            registerUnlockKeyDown(code: event.getIntegerValueField(.keyboardEventKeycode),
+                                  isRepeat: false)
         } else if type == Self.systemDefinedEventType,
                   let systemKey = systemKeyEvent(from: event),
                   systemKey.isKeyDown {
