@@ -60,11 +60,17 @@ struct MouseButtonShortcutsSection: View {
                     mappingRow(pendingButton, shortcut: nil)
                 }
                 captureRow
-                MouseExceptionsList(scope: .buttonShortcuts)
             }
             Toggle(text.spacesEnableLabel, isOn: $spacesEnabled)
                 .onChange(of: spacesEnabled) { _, on in
-                    if !on { stopSpacesCapture() }
+                    if !on {
+                        stopSpacesCapture()
+                        // The row is gone while this switch is off, so a kept
+                        // binding could only act invisibly: it would refuse
+                        // the button to shortcut capture, then come back dead
+                        // under a shortcut recorded meanwhile.
+                        spacesButton = 0
+                    }
                     MouseButtonShortcutService.shared.syncWithPreferences()
                     if on, !permissions.accessibility {
                         permissions.requestAccessibility()
@@ -80,6 +86,12 @@ struct MouseButtonShortcutsSection: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
+            }
+            // One exception list for one tap: the service checks these apps
+            // before both the shortcut and the drag branch, so the list must
+            // be reachable while either switch keeps that check deciding.
+            if enabled || spacesEnabled {
+                MouseExceptionsList(scope: .buttonShortcuts)
             }
         }
         .settingsSectionAnchor(.mouseButtonShortcuts)

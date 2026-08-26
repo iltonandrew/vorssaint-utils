@@ -96,7 +96,10 @@ final class MouseButtonShortcutService: ObservableObject {
         if let spacesGesture, spacesGesture.button != spacesButton {
             flushSpacesPress(proxy: nil, at: nil)
         }
-        let wanted = (enabled && (!mappings.isEmpty || isCapturing)) || spacesButton != nil
+        // Capture holds the tap up by itself: the press being asked for may
+        // be the drag's, and the drag's switch is not the shortcut switch.
+        // Either capture row only exists while its own switch is on.
+        let wanted = (enabled && !mappings.isEmpty) || isCapturing || spacesButton != nil
         guard wanted else {
             stop()
             return

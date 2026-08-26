@@ -15104,6 +15104,69 @@ struct MetricsTests {
                 && spaceBridgeCode.contains("CGSIsSymbolicHotKeyEnabled"),
                "the Space steps and the overviews keep their system symbolic hotkey ids")
 
+        // The drag alone keeps the tap alive with the shortcut switch off, so
+        // the down path must read that switch itself and hand the click back
+        // whole: a mapping left behind is inert and its button is the app's.
+        let spacesServiceLines = ((try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/MouseButtons/MouseButtonShortcutService.swift",
+            encoding: .utf8)) ?? "").components(separatedBy: "\n")
+        let isCodeLine: (String) -> Bool = {
+            !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+        }
+        var downPathReadsShortcutSwitch = false
+        for (index, line) in spacesServiceLines.enumerated()
+        where isCodeLine(line)
+            && line.contains("guard let shortcut = MouseButtonShortcutSupport.firesShortcut(") {
+            let window = spacesServiceLines[index...].prefix(7)
+            downPathReadsShortcutSwitch = window.contains {
+                isCodeLine($0) && $0.contains(
+                    "isEnabled: UserDefaults.standard.bool(forKey: DefaultsKey.mouseButtonShortcutsEnabled)")
+            } && window.contains {
+                isCodeLine($0) && $0.contains("else { return Unmanaged.passUnretained(event) }")
+            }
+        }
+        expect(downPathReadsShortcutSwitch,
+               "a tap kept up for the drag alone never fires a mapping the shortcut switch turned "
+                   + "off, and that button's click passes through whole")
+        expect(spacesServiceLines.contains {
+            isCodeLine($0) && $0.contains(
+                "let wanted = (enabled && !mappings.isEmpty) || isCapturing || spacesButton != nil")
+        }, "a capture holds the tap up by itself: the press asked for may be the drag's, "
+            + "whose switch is not the shortcut switch")
+
+        let mouseSettingsLines = ((try? String(
+            contentsOfFile: "Sources/Vorssaint/UI/Settings/MouseButtonSettings.swift",
+            encoding: .utf8)) ?? "").components(separatedBy: "\n")
+        // Matched as the whole line, indentation included: at Section-child
+        // depth no outer `if enabled` can quietly re-gate the list behind the
+        // shortcut switch alone.
+        var exceptionsListCoversBothSwitches = false
+        for (index, line) in mouseSettingsLines.enumerated()
+        where line == "            if enabled || spacesEnabled {" {
+            var cursor = index + 1
+            while cursor < mouseSettingsLines.count, !isCodeLine(mouseSettingsLines[cursor]) {
+                cursor += 1
+            }
+            exceptionsListCoversBothSwitches = cursor < mouseSettingsLines.count
+                && mouseSettingsLines[cursor].contains("MouseExceptionsList(scope: .buttonShortcuts)")
+        }
+        expect(exceptionsListCoversBothSwitches,
+               "the exception list the tap consults for the drag stays on screen while either switch is on")
+        var spacesSwitchOffDropsBinding = false
+        for (index, line) in mouseSettingsLines.enumerated()
+        where isCodeLine(line) && line.contains(".onChange(of: spacesEnabled)") {
+            let window = mouseSettingsLines[index...].prefix(12)
+            let stop = window.firstIndex {
+                $0.trimmingCharacters(in: .whitespaces) == "stopSpacesCapture()"
+            }
+            let clear = window.firstIndex {
+                $0.trimmingCharacters(in: .whitespaces) == "spacesButton = 0"
+            }
+            if let stop, let clear, stop < clear { spacesSwitchOffDropsBinding = true }
+        }
+        expect(spacesSwitchOffDropsBinding,
+               "the drag's own OFF branch drops its binding, so no hidden button ever refuses a shortcut")
+
         // A synthesized press has to carry the same flags a finger produces,
         // or the system matches it against no shortcut of its own (issue #401).
         expect(GlobalShortcut(keyCode: Int64(kVK_ANSI_N), modifiers: [.command, .shift])
