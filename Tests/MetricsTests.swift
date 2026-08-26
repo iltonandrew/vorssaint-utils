@@ -10017,17 +10017,23 @@ struct MetricsTests {
         // to the shared pool, because the runner's own spawns are what filled
         // it (issue #971). Absence rather than the one call that was found
         // holding it, so a new one cannot reintroduce the freeze quietly.
-        let runnerSource = (try? String(
-            contentsOfFile: "Sources/Vorssaint/Services/BoundedProcessRunner.swift",
-            encoding: .utf8)) ?? ""
+        // Anchored to this file's compiled path rather than the process's
+        // working directory, so running the binary from anywhere still finds
+        // the runner instead of reading "" and blaming the pool invariant.
+        let runnerURL = URL(fileURLWithPath: #filePath)  // Tests/MetricsTests.swift
+            .deletingLastPathComponent()                 // Tests/
+            .deletingLastPathComponent()                 // repo root
+            .appendingPathComponent("Sources/Vorssaint/Services/BoundedProcessRunner.swift")
+        let runnerSource = (try? String(contentsOf: runnerURL, encoding: .utf8)) ?? ""
         let runnerCode = runnerSource
             .split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
+        expect(!runnerCode.isEmpty, "the bounded runner's source was found")
         // Matching `.global(` rather than the one spelling: a queue bound to a
         // local first (`let q: DispatchQueue = .global(qos:)`) reaches the same
         // pool by a name this rule would otherwise never see.
-        expect(!runnerCode.isEmpty && !runnerCode.contains(".global("),
+        expect(!runnerCode.contains(".global("),
                "a bounded subprocess is never waited on from the shared dispatch pool")
 
         var networkDelta = NetworkProcessDeltaTracker(maxGap: 10)
