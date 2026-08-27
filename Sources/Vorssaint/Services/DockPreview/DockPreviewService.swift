@@ -30,8 +30,6 @@ final class DockPreviewService: ObservableObject {
     private var settingsTimer: Timer?
     private var pendingHover: PendingHover?
     private var pendingHide: DispatchWorkItem?
-    /// The mouse-move sampler: when the last move reached the full handler,
-    /// and the newest move still waiting for the next slot.
     private var lastMoveSampledAt: TimeInterval = 0
     private var pendingMove: DispatchWorkItem?
     private var pendingMovePoint: CGPoint?
@@ -344,18 +342,14 @@ final class DockPreviewService: ObservableObject {
         // and settle those moves synchronously for free.
         if type == .mouseMoved {
             if discardFarMouseMove(axPoint: point) {
-                // A move far from the Dock is proof the cursor left, so it also
-                // retires any in-band point still waiting its turn: sweeping
-                // past the strip and stopping just outside would otherwise let
-                // the held point outlive the moves that disproved it and arm a
-                // hover for an icon the cursor is no longer near.
                 cancelPendingMove()
                 return Unmanaged.passUnretained(event)
             }
-            // Inside the strip the full handler pays an Accessibility
-            // hit-test, which no mouse polling at 1000 Hz or more can be
-            // allowed to drive one-for-one (issue #960).
-            guard admitMouseMove(axPoint: point) else { return Unmanaged.passUnretained(event) }
+            guard admitMouseMove(axPoint: point) else {
+                return Unmanaged.passUnretained(event)
+            }
+        } else {
+            cancelPendingMove()
         }
         DispatchQueue.main.async { [weak self] in
             self?.handleOnMain(type: type, axPoint: point)
@@ -377,11 +371,9 @@ final class DockPreviewService: ObservableObject {
         return true
     }
 
-    /// Admits at most one mouse move per sample interval to the full handler.
-    /// A dropped move is not lost: the newest one is kept and handed over when
-    /// the interval elapses, so the position the cursor came to REST on is
-    /// still the one that arms a hover — which the throttle would otherwise
-    /// eat, a burst's last event being its closest-spaced one.
+    /// Lets one move per display frame reach the AX path and retains the
+    /// newest dropped point, so a cursor that comes to rest still opens the
+    /// intended preview.
     private func admitMouseMove(axPoint: CGPoint) -> Bool {
         let now = ProcessInfo.processInfo.systemUptime
         guard now - lastMoveSampledAt < DockPreviewSupport.mouseMoveSampleInterval else {
@@ -997,6 +989,13 @@ final class DockPreviewService: ObservableObject {
         guard let preferences = cachedPreferences ?? readDockPreferences(),
               let dockPID = dockProcessID()
         else { return nil }
+        guard DockClickSupport.dockOwnsPoint(
+            axPoint,
+            windows: Self.onScreenWindows(),
+            dockProcessID: dockPID,
+            dockLayer: Int(CGWindowLevelForKey(.dockWindow)),
+            ownProcessID: getpid()
+        ) else { return nil }
 
         let system = AXUIElementCreateSystemWide()
         var rawElement: AXUIElement?
@@ -1012,6 +1011,14 @@ final class DockPreviewService: ObservableObject {
             return DockHit(app: app, iconFrame: frame, preferences: preferences)
         }
         return nil
+    }
+
+    private static func onScreenWindows() -> [MouseAppExceptionSupport.Window] {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                    kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+        return MouseAppExceptionSupport.windows(from: list)
     }
 
     private func runningApplication(forDockElement element: AXUIElement) -> NSRunningApplication? {
