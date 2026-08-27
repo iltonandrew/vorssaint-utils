@@ -311,7 +311,7 @@ struct MouseButtonShortcutsSection: View {
             spacesFeedback = text.spacesCaptureUnsupported
         } else if RadialMenuSupport.claimsMouseButton(seen) {
             spacesFeedback = text.captureWheel
-        } else if mappings[seen] != nil {
+        } else if mappings[seen] != nil || pendingButton == seen {
             spacesFeedback = text.spacesCaptureExists
         } else {
             // Set before the capture ends, so the sync that ends it already

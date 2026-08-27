@@ -15204,6 +15204,22 @@ struct MetricsTests {
         }
         expect(spacesRefusalsAreOwn,
                "the drag capture's refusals recommend only what the drag accepts and point at no list")
+        // A button half-way through becoming a shortcut is still spoken for.
+        // startSpacesCapture() calls stopCapture(), which clears `capturing`
+        // and the feedback but leaves `pendingButton` and its row standing, so
+        // without this clause the drag takes a button the shortcut flow is
+        // still holding — and finishing that shortcut then drives the binding
+        // to nil while the drag's row goes on naming the button.
+        var spacesCaptureRefusesPending = false
+        for (index, line) in mouseSettingsLines.enumerated()
+        where isCodeLine(line) && line.contains("private func handleSpacesCapture") {
+            let window = mouseSettingsLines[index...].prefix(16)
+            spacesCaptureRefusesPending = window.contains {
+                isCodeLine($0) && $0.contains("pendingButton == seen")
+            }
+        }
+        expect(spacesCaptureRefusesPending,
+               "the drag capture refuses a button that is mid-way through becoming a shortcut")
 
         // A synthesized press has to carry the same flags a finger produces,
         // or the system matches it against no shortcut of its own (issue #401).
