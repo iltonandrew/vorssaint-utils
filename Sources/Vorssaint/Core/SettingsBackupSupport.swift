@@ -171,6 +171,27 @@ enum SettingsBackupSupport {
         return nil
     }
 
+    /// The half of an exception list a backup file never carries, because
+    /// `portableMouseExceptions` filters it out on the way out.
+    static func pathIdentities(in list: [String]) -> [String] {
+        list.filter(MouseAppExceptionSupport.isExecutablePathIdentity)
+    }
+
+    /// What an exception list should hold once a backup has been applied.
+    /// Restoring clears every exported key before writing the file's values,
+    /// and the file only has the portable half -- so without carrying the
+    /// paths across, applying a backup would delete the entries for programs
+    /// that are not apps, including on the Mac the backup was written on. The
+    /// restored order wins and a carried path already present is not doubled,
+    /// so applying the same backup twice lands on the same list. All five keys
+    /// register `[String]()`, so after the clear the read is `[]` rather than
+    /// the pre-restore list -- which is what makes this safe on a backup
+    /// written before these keys existed, and not only on one that carries an
+    /// empty array. (Reasoning from @PathGao's review.)
+    static func restoredExceptionList(restored: [String], carried: [String]) -> [String] {
+        restored + carried.filter { !restored.contains($0) }
+    }
+
     /// A mouse exception list holds two kinds of identity at once: a bundle
     /// identifier, which names the same app on any Mac, and the resolved path
     /// of a program that has no identifier to be named by (issue #1009). The
@@ -188,23 +209,6 @@ enum SettingsBackupSupport {
     /// Driven from `MouseExceptionScope.allCases` rather than a list of keys
     /// spelled here, so a scope that renames its key, or two scopes that come
     /// to share one, are covered without this file being edited.
-    /// The half of an exception list a backup file never carries, because
-    /// `portableMouseExceptions` filters it out on the way out.
-    static func pathIdentities(in list: [String]) -> [String] {
-        list.filter(MouseAppExceptionSupport.isExecutablePathIdentity)
-    }
-
-    /// What an exception list should hold once a backup has been applied.
-    /// Restoring clears every exported key before writing the file's values,
-    /// and the file only has the portable half -- so without carrying the
-    /// paths across, applying a backup would delete the entries for programs
-    /// that are not apps, including on the Mac the backup was written on. The
-    /// restored order wins and a carried path already present is not doubled,
-    /// so applying the same backup twice lands on the same list.
-    static func restoredExceptionList(restored: [String], carried: [String]) -> [String] {
-        restored + carried.filter { !restored.contains($0) }
-    }
-
     private static func portableMouseExceptions(_ source: [String: Any]) -> [String: Any] {
         var settings = source
         for key in Set(MouseExceptionScope.allCases.map(\.defaultsKey)) {
