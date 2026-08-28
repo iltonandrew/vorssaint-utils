@@ -403,6 +403,24 @@ struct MetricsTests {
                     byteCount: ClipboardHistoryEditing.maxEncodedHistoryBytes + 1)
                 && !ClipboardHistoryEditing.canLoadEncodedHistory(byteCount: nil),
                "clipboard history size is checked before its store file is loaded")
+        let escapingHistory = (0..<8).map { index in
+            ClipboardHistoryEntry(
+                id: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index + 1))!,
+                text: String(repeating: "\\", count: 1_000),
+                copiedAt: Date(timeIntervalSince1970: Double(index))
+            )
+        }
+        let encodedHistoryLimit = 5_000
+        if let encodedHistory = ClipboardHistoryEditing.encodedHistory(
+            escapingHistory, byteLimit: encodedHistoryLimit) {
+            expect(encodedHistory.data.count <= encodedHistoryLimit
+                    && (try? JSONDecoder().decode([ClipboardHistoryEntry].self,
+                                                 from: encodedHistory.data)) == encodedHistory.entries
+                    && encodedHistory.entries.count < escapingHistory.count,
+                   "clipboard persistence trims against actual escaped JSON before writing")
+        } else {
+            expect(false, "clipboard persistence encodes a bounded escaped history")
+        }
         let largeClipboardPreview = ClipboardHistoryEntry(text: largeClipboardText).preview
         expect(largeClipboardPreview.hasSuffix("…")
                 && largeClipboardPreview.count <= ClipboardHistoryEditing.previewCharacters + 1,
@@ -1306,8 +1324,11 @@ struct MetricsTests {
                "Apple M4 Ultra uses the mapped CPU core sensor set")
         expect(TemperatureSensorSelector.platform(brandString: "Apple M5") == .appleM5Family,
                "Apple M5 uses the mapped CPU core sensor set")
-        expect(TemperatureSensorSelector.platform(brandString: "Apple M10") == .generic,
-               "future unmapped Apple Silicon generations keep the generic CPU sensor path")
+        expect(TemperatureSensorSelector.platform(brandString: "Apple M10") == .unmappedAppleSilicon
+               && TemperatureSensorSelector.platform(brandString: "Apple A18 Pro") == .unmappedAppleSilicon,
+               "unmapped Apple Silicon never falls through to arbitrary CPU sensors")
+        expect(TemperatureSensorSelector.platform(brandString: "Generic CPU") == .generic,
+               "other processors keep the generic CPU sensor path")
         expect(TemperatureSensorSelector.isCPUTemperatureKey("Tf4E", platform: .appleM3Family)
                 && !TemperatureSensorSelector.isCPUTemperatureKey("Tf4E", platform: .appleM4Family)
                 && TemperatureSensorSelector.isCPUTemperatureKey("Tp01", platform: .appleM4Family),
@@ -1378,7 +1399,12 @@ struct MetricsTests {
             readings: [("Tp00", 44.5), ("Tp0W", 67.0)],
             platform: .appleM4Family
         )
-        expectClose(m4FallbackCPU ?? -1, 67.0, "mapped CPU core selection falls back when no mapped sensor is available")
+        expect(m4FallbackCPU == nil,
+               "mapped Apple Silicon never substitutes an auxiliary hotspot for a missing core sensor")
+        expect(TemperatureSensorSelector.displayedCPUTemperature(
+            readings: [("Tp00", 44.5), ("Tp0W", 113.0)],
+            platform: .unmappedAppleSilicon
+        ) == nil, "unmapped Apple Silicon hides unknown sensors instead of reporting an unsafe value")
         let genericCPU = TemperatureSensorSelector.displayedCPUTemperature(
             readings: [("Tp00", 44.5), ("Tp01", 51.6)],
             platform: .generic
@@ -1947,6 +1973,10 @@ struct MetricsTests {
                "an unreadable visible-Space set never claims a parked window")
         expect(!SpaceHopSupport.isParkedOnHiddenSpace(windowSpaces: [3, 4], visibleSpaces: [3]),
                "a window pinned to several Spaces including a visible one is reachable")
+        expect(SpaceHopSupport.isOnFullscreenSpace(windowSpaces: [4, 8], fullscreenSpaces: [8])
+               && !SpaceHopSupport.isOnFullscreenSpace(windowSpaces: [4], fullscreenSpaces: [8])
+               && !SpaceHopSupport.isOnFullscreenSpace(windowSpaces: [], fullscreenSpaces: [8]),
+               "App Switcher identifies fullscreen from Space type instead of window size")
         expect(SpaceHopSupport.isExcludedFromWindowCycle(windowTagsLow: 1 << 18),
                "a window-server surface marked to ignore cycling is excluded from the switcher")
         expect(!SpaceHopSupport.isExcludedFromWindowCycle(windowTagsLow: (1 << 19) | (1 << 22)),
@@ -8419,6 +8449,40 @@ struct MetricsTests {
                                                   screenFrame: dockScreen,
                                                   visibleFrame: CGRect(x: 0, y: 24, width: 1512, height: 958)),
                "dock strip falls back to an edge band when auto-hide reserves nothing")
+        let dockStripWindow = MouseAppExceptionSupport.Window(frame: dockScreen, layer: 20,
+                                                              processID: 1267)
+        let coveringWindow = MouseAppExceptionSupport.Window(frame: dockScreen, layer: 24,
+                                                             processID: 4242)
+        let dockPoint = CGPoint(x: 90, y: 930)
+        expect(DockClickSupport.dockOwnsPoint(dockPoint,
+                                              windows: [dockStripWindow],
+                                              dockProcessID: 1267,
+                                              dockLayer: 20,
+                                              ownProcessID: 501),
+               "Dock click accepts a visible unobstructed Dock strip")
+        expect(!DockClickSupport.dockOwnsPoint(dockPoint,
+                                               windows: [coveringWindow, dockStripWindow],
+                                               dockProcessID: 1267,
+                                               dockLayer: 20,
+                                               ownProcessID: 501),
+               "Dock click leaves a point covered by fullscreen content untouched")
+        expect(DockClickSupport.dockOwnsPoint(
+            dockPoint,
+            windows: [MouseAppExceptionSupport.Window(frame: dockScreen, layer: 24,
+                                                       processID: 501), dockStripWindow],
+            dockProcessID: 1267,
+            dockLayer: 20,
+            ownProcessID: 501),
+               "this app's own panel never hides the Dock below it from the ownership check")
+        expect(DockPreviewSupport.mouseMoveSampleInterval > 0
+               && DockPreviewSupport.mouseMoveSampleInterval <= 1.0 / 60
+               && DockPreviewSupport.mouseMoveSampleInterval < DockPreviewSupport.switchDelay,
+               "Dock Preview samples high-rate mouse movement faster than hover intent")
+        let dockPreviewSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/DockPreview/DockPreviewService.swift",
+            encoding: .utf8)) ?? ""
+        expect(dockPreviewSource.contains("DockClickSupport.dockOwnsPoint("),
+               "Dock Preview does not open through fullscreen content covering the Dock")
 
         expect(MiddleClickSupport.actionForClick(fingerCount: 3, frameAge: 0.05, settledFor: 0.2,
                                                  sinceLastTransformEnd: nil,
@@ -9432,44 +9496,52 @@ struct MetricsTests {
                                                         buttonNumber: 2,
                                                         panelIsVisible: true,
                                                         panelFrame: switcherPanelFrame,
-                                                        location: CGPoint(x: 700, y: 500)),
-               "App Switcher detects middle-click inside panel to close window")
+                                                        location: CGPoint(x: 700, y: 500),
+                                                        itemIsHovered: true),
+               "App Switcher detects middle-click on a card to close that window")
         expect(!SwitcherSupport.isMiddleClickInsidePanel(eventType: .otherMouseDown,
                                                          buttonNumber: 2,
                                                          panelIsVisible: true,
                                                          panelFrame: switcherPanelFrame,
-                                                         location: CGPoint(x: 200, y: 200)),
+                                                         location: CGPoint(x: 700, y: 500),
+                                                         itemIsHovered: false),
+               "App Switcher leaves middle-click on panel chrome alone")
+        expect(!SwitcherSupport.isMiddleClickInsidePanel(eventType: .otherMouseDown,
+                                                         buttonNumber: 2,
+                                                         panelIsVisible: true,
+                                                         panelFrame: switcherPanelFrame,
+                                                         location: CGPoint(x: 200, y: 200),
+                                                         itemIsHovered: true),
                "App Switcher leaves middle-click outside panel to regular dismissal")
         expect(!SwitcherSupport.isMiddleClickInsidePanel(eventType: .leftMouseDown,
                                                          buttonNumber: 0,
                                                          panelIsVisible: true,
                                                          panelFrame: switcherPanelFrame,
-                                                         location: CGPoint(x: 700, y: 500)),
+                                                         location: CGPoint(x: 700, y: 500),
+                                                         itemIsHovered: true),
                "App Switcher ignores non-middle clicks for direct window close")
         expect(!SwitcherSupport.isMiddleClickInsidePanel(eventType: .otherMouseDown,
                                                          buttonNumber: 3,
                                                          panelIsVisible: true,
                                                          panelFrame: switcherPanelFrame,
-                                                         location: CGPoint(x: 700, y: 500)),
+                                                         location: CGPoint(x: 700, y: 500),
+                                                         itemIsHovered: true),
                "App Switcher ignores extra mouse buttons for direct window close")
         expect(!SwitcherSupport.isMiddleClickInsidePanel(eventType: .otherMouseDown,
                                                          buttonNumber: 2,
                                                          panelIsVisible: false,
                                                          panelFrame: switcherPanelFrame,
-                                                         location: CGPoint(x: 700, y: 500)),
+                                                         location: CGPoint(x: 700, y: 500),
+                                                         itemIsHovered: true),
                "App Switcher ignores middle-click when panel is not visible")
         expect(SwitcherSupport.shouldSwallowMiddleMouseUp(eventType: .otherMouseUp,
                                                           buttonNumber: 2,
-                                                          panelIsVisible: true,
-                                                          panelFrame: switcherPanelFrame,
-                                                          location: CGPoint(x: 700, y: 500)),
-               "App Switcher swallows middle-mouse-up inside panel")
+                                                          swallowedMouseDown: true),
+               "App Switcher swallows the release after closing a card")
         expect(!SwitcherSupport.shouldSwallowMiddleMouseUp(eventType: .otherMouseUp,
                                                            buttonNumber: 2,
-                                                           panelIsVisible: true,
-                                                           panelFrame: switcherPanelFrame,
-                                                           location: CGPoint(x: 200, y: 200)),
-               "App Switcher does not swallow middle-mouse-up outside panel")
+                                                           swallowedMouseDown: false),
+               "App Switcher leaves unrelated middle-mouse-up events alone")
         let searchRecords = [
             SwitcherSearchRecord(id: "alpha", title: "Inbox", appName: "Alpha"),
             SwitcherSearchRecord(id: "beta", title: "Vorssaint Roadmap", appName: "Beta"),
@@ -11114,6 +11186,13 @@ struct MetricsTests {
         expectClose(m3FanTemperatures.first { $0.source == .averageCPU }?.celsius ?? -1,
                     48.5,
                     "M3 fan curves exclude auxiliary Tf readings from the CPU average")
+        let unmappedFanTemperatures = FanControlPolicy.aggregatedTemperatures(
+            cpuReadings: [("Tp00", 48), ("Tp0W", 113)],
+            gpuReadings: [],
+            platform: .unmappedAppleSilicon
+        )
+        expect(unmappedFanTemperatures.isEmpty,
+               "fan curves reject unknown Apple Silicon sensors instead of treating them as CPU")
         expect(FanControlPolicy.telemetryReadings(expectedCount: 1, readings: [1_200]) == [1_200]
                 && FanControlPolicy.telemetryReadings(expectedCount: 2,
                                                       readings: [1_200, 1_350]) == [1_200, 1_350],
@@ -11203,7 +11282,7 @@ struct MetricsTests {
         for language in AppLanguage.allCases {
             let strings = FeatureStrings.fanControl(language)
             let values = Mirror(reflecting: strings).children.compactMap { $0.value as? String }
-            expect(values.count == 41 && values.allSatisfy { !$0.isEmpty },
+            expect(values.count == 42 && values.allSatisfy { !$0.isEmpty },
                    "fan control has every localized field for \(language.rawValue)")
             expect(values.allSatisfy { !$0.contains("—") },
                    "fan control text uses human punctuation for \(language.rawValue)")
@@ -11622,6 +11701,24 @@ struct MetricsTests {
                "current app PID is protected")
         expect(!KillProcessSupport.isProtected(pid: 12345, name: "Safari", path: "/Applications/Safari.app/Contents/MacOS/Safari"),
                "ordinary user app is not protected")
+        expect(KillProcessSupport.numberComesBefore(90, 10, lhsPID: 2, rhsPID: 1,
+                                                    ascending: false)
+               && KillProcessSupport.numberComesBefore(10, 90, lhsPID: 2, rhsPID: 1,
+                                                       ascending: true)
+               && !KillProcessSupport.numberComesBefore(10, 10, lhsPID: 2, rhsPID: 1,
+                                                        ascending: true),
+               "Kill Process numeric sorting is strict and follows the selected direction")
+        expect(KillProcessSupport.nameComesBefore("Alpha", "Zulu", lhsPID: 2, rhsPID: 1,
+                                                  ascending: true)
+               && KillProcessSupport.nameComesBefore("Zulu", "Alpha", lhsPID: 2, rhsPID: 1,
+                                                     ascending: false)
+               && !KillProcessSupport.nameComesBefore("Same", "same", lhsPID: 2, rhsPID: 1,
+                                                      ascending: true),
+               "Kill Process name sorting is A to Z by default and strict for ties")
+        expect(KillProcessSupport.normalizedStartDescription(" Thu  Aug 27  10:20:30 2026 \n")
+                == "Thu Aug 27 10:20:30 2026"
+               && KillProcessSupport.normalizedStartDescription("bad'; kill 1") == nil,
+               "Kill Process accepts only safe normalized start identities for the admin command")
 
         for language in AppLanguage.allCases {
             let categoryValues = Mirror(reflecting: FeatureStrings.settingsCategories(language)).children
@@ -11677,7 +11774,7 @@ struct MetricsTests {
                    "no em-dash in recent capture strings (\(language.rawValue))")
             let feedbackValues = Mirror(reflecting: FeatureStrings.feedback(language)).children
                 .compactMap { $0.value as? String }
-            expect(feedbackValues.count == 28 && feedbackValues.allSatisfy { !$0.isEmpty },
+            expect(feedbackValues.count == 29 && feedbackValues.allSatisfy { !$0.isEmpty },
                    "every feedback string is set for \(language.rawValue)")
             expect(feedbackValues.allSatisfy { !$0.contains("—") },
                    "no em-dash in visible feedback strings (\(language.rawValue))")
@@ -12434,6 +12531,15 @@ struct MetricsTests {
                "a replacement without variables never reads the clipboard")
         expect(!TextSnippetSupport.needsClipboard("keep {{unknown}}"),
                "an unknown variable is not the clipboard one")
+        expect(TextSnippetSupport.requiresPaste("first\nsecond")
+               && TextSnippetSupport.requiresPaste("first\rsecond")
+               && !TextSnippetSupport.requiresPaste("one line"),
+               "multi-line snippets use paste while single-line snippets keep typed injection")
+        expect(TextSnippetSupport.pastePayload(text: "first\nsecond", trailingText: "\r")
+                == "first\nsecond\n"
+               && TextSnippetSupport.pastePayload(text: "first\nsecond", trailingText: " ")
+                == "first\nsecond ",
+               "multi-line snippets keep their delimiter in the same ordered paste")
 
         // Custom date patterns after a colon (issue #348)
         let enUS = Locale(identifier: "en_US")
@@ -13100,6 +13206,14 @@ struct MetricsTests {
         testImage.unlockFocus()
         let samplePNG = RadialMenuFaviconFetcher.scaledPNGData(from: testImage, targetSize: 32)
         expect(samplePNG != nil && (samplePNG?.count ?? 0) > 0, "scaledPNGData produces valid PNG")
+        expect(samplePNG.map { RadialMenuFaviconFetcher.sourceDimensionsAreSafe($0) } == true
+               && !RadialMenuFaviconFetcher.sourceDimensionsAreSafe(Data("not an image".utf8)),
+               "favicon decoding accepts bounded images and rejects invalid payloads")
+        expect(RadialMenuFaviconFetcher.faviconURL(
+            for: "https://example.com:8443/path?q=1#part")?.absoluteString
+                == "https://example.com:8443/favicon.ico"
+               && RadialMenuFaviconFetcher.faviconURL(for: "not a url") == nil,
+               "favicon download stays on the website origin and preserves its port")
 
         let itemWithFavicon = RadialMenuItem(kind: .url, name: "Site", payload: "https://example.com", customIconData: samplePNG)
         let encodedFaviconData = RadialMenuSupport.encode([itemWithFavicon])
@@ -15413,6 +15527,35 @@ struct MetricsTests {
                 && !SuperKeySupport.mappingMarkerAfterClear(previous: false,
                                                             readbackConfirmed: false),
                "only confirmed clear readback removes the write-ahead mapping marker")
+        expect(SuperKeySupport.mappingRequestIsAuthorized(
+            requestGeneration: 4,
+            currentGeneration: 4,
+            tapIsCurrent: true,
+            stopping: false
+        )
+                && !SuperKeySupport.mappingRequestIsAuthorized(
+                    requestGeneration: 4,
+                    currentGeneration: 5,
+                    tapIsCurrent: true,
+                    stopping: false
+                )
+                && !SuperKeySupport.mappingRequestIsAuthorized(
+                    requestGeneration: 4,
+                    currentGeneration: 4,
+                    tapIsCurrent: false,
+                    stopping: false
+                ),
+               "a stop or replaced event tap invalidates a queued Super key mapping")
+        expect(SuperKeyMappingGuard.cleanupSource(in: [
+            "Vorssaint", SuperKeyMappingGuard.cleanupArgument, "capsLock",
+        ]) == .capsLock
+                && SuperKeyMappingGuard.cleanupSource(in: [
+                    "Vorssaint", SuperKeyMappingGuard.cleanupArgument, "rightCommand",
+                ]) == .rightCommand
+                && SuperKeyMappingGuard.cleanupSource(in: [
+                    "Vorssaint", SuperKeyMappingGuard.cleanupArgument, "invalid",
+                ]) == nil,
+               "the crash guard accepts only a real Super key source")
 
         let mappingReport = """
         RegistryID  Key                   Value
@@ -15484,6 +15627,11 @@ struct MetricsTests {
             property: SuperKeySupport.userMappingProperty,
             ownedSource: .capsLock
         ) == [foreignMapping], "a newly connected keyboard can converge when only the owned mapping differs")
+        expect(SuperKeyMappingGuard.mappingsAfterCleanup(
+            ownedDifferenceReport,
+            source: .capsLock
+        ) == [foreignMapping],
+               "the crash guard removes only the mapping owned by the Super key")
 
         let noActionReport = """
         HIDKeyboardModifierMappingPairs = {
