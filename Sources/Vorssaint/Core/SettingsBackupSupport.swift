@@ -188,6 +188,23 @@ enum SettingsBackupSupport {
     /// Driven from `MouseExceptionScope.allCases` rather than a list of keys
     /// spelled here, so a scope that renames its key, or two scopes that come
     /// to share one, are covered without this file being edited.
+    /// The half of an exception list a backup file never carries, because
+    /// `portableMouseExceptions` filters it out on the way out.
+    static func pathIdentities(in list: [String]) -> [String] {
+        list.filter(MouseAppExceptionSupport.isExecutablePathIdentity)
+    }
+
+    /// What an exception list should hold once a backup has been applied.
+    /// Restoring clears every exported key before writing the file's values,
+    /// and the file only has the portable half -- so without carrying the
+    /// paths across, applying a backup would delete the entries for programs
+    /// that are not apps, including on the Mac the backup was written on. The
+    /// restored order wins and a carried path already present is not doubled,
+    /// so applying the same backup twice lands on the same list.
+    static func restoredExceptionList(restored: [String], carried: [String]) -> [String] {
+        restored + carried.filter { !restored.contains($0) }
+    }
+
     private static func portableMouseExceptions(_ source: [String: Any]) -> [String: Any] {
         var settings = source
         for key in Set(MouseExceptionScope.allCases.map(\.defaultsKey)) {
