@@ -136,6 +136,7 @@ enum SettingsBackupSupport {
             }
         }
         settings = portableMediaSettings(settings)
+        settings = portableMouseExceptions(settings)
         return [
             formatVersionKey: formatVersion,
             appVersionKey: appVersion,
@@ -153,7 +154,7 @@ enum SettingsBackupSupport {
         else { return nil }
         let allowed = exportKeys()
         let filtered = settings.filter { allowed.contains($0.key) && valueLooksRight($0.key, $0.value) }
-        return portableMediaSettings(filtered)
+        return portableMouseExceptions(portableMediaSettings(filtered))
     }
 
     static func formatVersion(from payload: [String: Any]) -> Int? {
@@ -168,6 +169,36 @@ enum SettingsBackupSupport {
             return intValue
         }
         return nil
+    }
+
+    /// A mouse exception list holds two kinds of identity at once: a bundle
+    /// identifier, which names the same app on any Mac, and the resolved path
+    /// of a program that has no identifier to be named by (issue #1009). The
+    /// never-exported list above already refuses the second kind wherever it
+    /// has a key to itself -- `commandBarFileScopes`,
+    /// `mediaImageWatermarkLogoPath`, `brightnessDDCWriteOnlyPaths`, all for
+    /// the same stated reason: authority on one Mac, not portable
+    /// configuration. Here the two kinds share one array, so the refusal has
+    /// to be per value rather than per key. Left in, a backup would carry the
+    /// short username inside the path, and restoring it on another Mac would
+    /// leave a row pointing at a file that is not there -- which
+    /// `valueLooksRight` cannot catch, since the value is a perfectly good
+    /// `[String]`.
+    ///
+    /// Driven from `MouseExceptionScope.allCases` rather than a list of keys
+    /// spelled here, so a scope that renames its key, or two scopes that come
+    /// to share one, are covered without this file being edited.
+    private static func portableMouseExceptions(_ source: [String: Any]) -> [String: Any] {
+        var settings = source
+        for key in Set(MouseExceptionScope.allCases.map(\.defaultsKey)) {
+            guard let stored = settings[key] as? [String] else { continue }
+            let portable = stored.filter { !MouseAppExceptionSupport.isExecutablePathIdentity($0) }
+            guard portable.count != stored.count else { continue }
+            // An emptied list still means "no exceptions", so the key stays
+            // rather than falling back to whatever a missing key would do.
+            settings[key] = portable
+        }
+        return settings
     }
 
     private static func portableMediaSettings(_ source: [String: Any]) -> [String: Any] {
