@@ -1626,7 +1626,7 @@ struct QuickControlsSection: View {
                            needsAttention: buttonsEngaged && !permissions.accessibility,
                            permissionButtonTitle: l10n.s.permissionRequest,
                            permissionAction: accessibilityPermissionAction(buttonsEngaged),
-                           accessoryTitle: mouseButtonShortcutsEnabled ? buttonStrings.manageButton : nil,
+                           accessoryTitle: buttonsEngaged ? buttonStrings.manageButton : nil,
                            accessoryAction: {
                                SettingsRouter.shared.page = .mouse
                                appDelegate()?.openSettingsWindow()

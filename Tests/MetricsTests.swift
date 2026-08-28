@@ -15301,11 +15301,12 @@ struct MetricsTests {
         expect(!engagedName.isEmpty
                 && panelButtonRow.contains("needsAccessibility:\(engagedName)")
                 && panelButtonRow.contains("permissionAction:accessibilityPermissionAction(\(engagedName))")
+                && panelButtonRow.contains("accessoryTitle:\(engagedName)?")
                 && !panelShortcutProperty.isEmpty && !panelSpacesProperty.isEmpty
                 && engagedDefinition.contains(panelShortcutProperty)
                 && engagedDefinition.contains(panelSpacesProperty),
-               "the panel mouse-button row's caption, attention state and grant button "
-                   + "all read one engaged flag built from both switches")
+               "the panel mouse-button row's caption, attention state, grant button and "
+                   + "Manage link all read one engaged flag built from both switches")
 
         // Per call site, not the last one seen: a second one added later must
         // read the switch too, and a file that lost the call entirely has to
