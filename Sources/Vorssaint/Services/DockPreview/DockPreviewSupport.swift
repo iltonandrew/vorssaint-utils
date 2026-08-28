@@ -341,6 +341,29 @@ enum DockPreviewSupport {
         return frame
     }
 
+    /// A panel already pulled into the space an auto-hidden Dock left keeps
+    /// that attachment when its cards change size. Rebuilding from the icon is
+    /// still useful for the new dimensions; only its Dock-facing axis is put
+    /// back at the screen edge.
+    static func resizedPanelFrame(_ dockAnchoredFrame: CGRect,
+                                  didReattachForSession: Bool,
+                                  screenVisibleFrame: CGRect,
+                                  orientation: DockPreviewOrientation) -> CGRect {
+        guard didReattachForSession else { return dockAnchoredFrame }
+        return panelFrameWhenDockHidden(dockAnchoredFrame,
+                                        screenVisibleFrame: screenVisibleFrame,
+                                        orientation: orientation)
+    }
+
+    /// The Dock window only needs watching until it disappears once. The
+    /// timer itself covers repeated mouse moves before that happens; the
+    /// session flag covers the moves after it has.
+    static func shouldStartDockVisibilityTimer(hasActiveTimer: Bool,
+                                               didReattachForSession: Bool,
+                                               autohide: Bool) -> Bool {
+        !hasActiveTimer && !didReattachForSession && autohide
+    }
+
     /// Whether the panel draws a header row. A hovered panel has no use for
     /// one: it named the app whose Dock icon the pointer is resting on, and
     /// carried steppers for walking windows the pointer is already on top of.

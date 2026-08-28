@@ -7743,6 +7743,41 @@ struct MetricsTests {
         expect(hiddenBottomFrame.minY == screen.minY + DockPreviewSupport.edgePadding
                && hiddenBottomFrame.minX == bottomFrame.minX,
                "Dock Preview fills a bottom auto-hidden Dock's vacated edge without jumping horizontally")
+        let resizedDockFrame = DockPreviewSupport.panelFrame(
+            anchor: iconBottom,
+            panelSize: DockPreviewSupport.panelSize(itemCount: 1,
+                                                    screenVisibleFrame: screen,
+                                                    isPinned: false),
+            screenVisibleFrame: screen,
+            orientation: .bottom
+        )
+        let expectedResizedEdgeFrame = DockPreviewSupport.panelFrameWhenDockHidden(
+            resizedDockFrame, screenVisibleFrame: screen, orientation: .bottom)
+        expect(DockPreviewSupport.resizedPanelFrame(
+                resizedDockFrame,
+                didReattachForSession: true,
+                screenVisibleFrame: screen,
+                orientation: .bottom) == expectedResizedEdgeFrame,
+               "resizing a reattached Dock Preview keeps it at the vacated screen edge")
+        expect(!DockPreviewSupport.shouldStartDockVisibilityTimer(
+                hasActiveTimer: false,
+                didReattachForSession: true,
+                autohide: true),
+               "a reattached Dock Preview does not re-arm its visibility watcher")
+        // Both complements, so neither helper can be mutated into a constant
+        // and stay green: an always-edge frame would strand a panel that was
+        // never reattached, and an always-false watcher would never fire once.
+        expect(DockPreviewSupport.resizedPanelFrame(
+                resizedDockFrame,
+                didReattachForSession: false,
+                screenVisibleFrame: screen,
+                orientation: .bottom) == resizedDockFrame,
+               "a preview that never reattached keeps resizing to the Dock-anchored frame")
+        expect(DockPreviewSupport.shouldStartDockVisibilityTimer(
+                hasActiveTimer: false,
+                didReattachForSession: false,
+                autohide: true),
+               "an auto-hiding Dock still arms the visibility watcher the first time")
         let dockPreviewServiceSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/Services/DockPreview/DockPreviewService.swift",
             encoding: .utf8)) ?? ""
