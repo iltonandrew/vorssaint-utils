@@ -17571,9 +17571,6 @@ struct MetricsTests {
         // one moved leaves the code present and the entries still deleted.
         // Strip comments before asserting: "X appears before Y" would otherwise
         // be satisfied by a doc comment mentioning either.
-        let isCodeLine: (String) -> Bool = {
-            !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
-        }
         let backupServiceLines = ((try? String(
             contentsOfFile: "Sources/Vorssaint/Services/SettingsBackup.swift",
             encoding: .utf8)) ?? "").components(separatedBy: "\n")
