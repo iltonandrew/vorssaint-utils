@@ -52,13 +52,21 @@ final class SmoothScrollService: ObservableObject {
     /// only touch devices emit those. Read/written solely on the tap callback.
     private var lastGesturePhaseTimestamp: UInt64?
 
-    private init() {}
+    private init() {
+        // Fast user switching: the tap goes back while this session is off
+        // screen and is built again from the preferences on the way in.
+        SessionActivity.shared.onChange { [weak self] _ in
+            self?.syncWithPreferences()
+        }
+    }
 
     /// Applies the persisted preference; safe to call repeatedly.
     func syncWithPreferences() {
         let wanted = AppFeature.smoothScroll.isAvailable
             && UserDefaults.standard.bool(forKey: DefaultsKey.smoothScrollEnabled)
-        if wanted, Permissions.shared.accessibility {
+        if ScrollWheelSupport.tapShouldRun(featureWanted: wanted,
+                                           accessibilityGranted: Permissions.shared.accessibility,
+                                           sessionIsActive: SessionActivity.shared.isActive) {
             start()
         } else {
             stop()
@@ -110,6 +118,12 @@ final class SmoothScrollService: ObservableObject {
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         }
+        // Hand the tap back rather than only switching it off: a disabled tap
+        // keeps its place in the chain, and a session that is switched away
+        // has to stop being an event tap owner outright (issue #1075).
+        if let tap {
+            CFMachPortInvalidate(tap)
+        }
         tap = nil
         runLoopSource = nil
         stopGlide()
@@ -117,9 +131,13 @@ final class SmoothScrollService: ObservableObject {
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // macOS disables taps that stall or when the session locks; re-arm.
+        // macOS disables taps that stall or when the session locks; re-arm,
+        // unless this session is the one that was switched away from, where
+        // the stall is the reason the tap was disabled and re-arming feeds it.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            if SessionActivity.shared.isActive, let tap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
             return Unmanaged.passUnretained(event)
         }
         guard type == .scrollWheel else { return Unmanaged.passUnretained(event) }

@@ -37,6 +37,21 @@ enum ScrollWheelSupport {
     /// replaying that number as pixels would travel a tenth of the distance.
     static let pointsPerLine: Double = 10
 
+    /// Whether a scroll tap should be in the event chain at all.
+    ///
+    /// Fast user switching adds the third condition. A tap created here keeps
+    /// its place while this login session is switched away, so the window
+    /// server still routes every scroll through a process that cannot answer
+    /// and waits out the tap timeout on each one — the account on screen
+    /// scrolls badly or not at all. Both the preference sync and the timeout
+    /// re-arm ask this, so a tap handed back cannot be re-armed into a session
+    /// that is no longer on screen.
+    static func tapShouldRun(featureWanted: Bool,
+                             accessibilityGranted: Bool,
+                             sessionIsActive: Bool) -> Bool {
+        featureWanted && accessibilityGranted && sessionIsActive
+    }
+
     static func isMouseWheel(_ traits: ScrollWheelEventTraits,
                              secondsSinceLastGesturePhase: TimeInterval?) -> Bool {
         if !traits.isContinuous {
