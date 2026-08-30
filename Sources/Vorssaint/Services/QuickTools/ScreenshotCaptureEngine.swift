@@ -186,9 +186,9 @@ enum ScreenshotCaptureEngine {
     }
 
     /// Draws the clicked window together with what the app stacked on it.
-    /// ScreenCaptureKit is the only route that takes more than one window, and
-    /// the source rectangle keeps the result to the area they cover instead of
-    /// the whole display. `nil` leaves the single-window routes to answer.
+    /// ScreenCaptureKit is the only route that takes more than one window. It
+    /// captures their composited display, then crops it to the area they cover.
+    /// `nil` leaves the single-window routes to answer.
     private static func captureAttached(
         _ plan: ScreenshotCapturePolicy.AttachedCapturePlan) async -> CGImage? {
         guard let content = try? await SCShareableContent.excludingDesktopWindows(
@@ -198,23 +198,32 @@ enum ScreenshotCaptureEngine {
             content.windows.first { $0.windowID == id }
         }
         guard windows.count == plan.windowIDs.count,
-              let display = content.displays.first(where: { $0.frame.intersects(plan.bounds) })
+              let display = content.displays.first(where: { $0.frame.intersects(plan.bounds) }),
+              let screen = NSScreen.screens.first(where: { $0.displayID == display.displayID }),
+              let mainScreen = NSScreen.screens.first
         else { return nil }
         let filter = SCContentFilter(display: display, including: windows)
         let configuration = SCStreamConfiguration()
-        // The source rectangle is measured from the display's own origin.
-        configuration.sourceRect = plan.bounds.offsetBy(dx: -display.frame.origin.x,
-                                                        dy: -display.frame.origin.y)
-        // The filter knows the points-to-pixels factor of the display it ends
-        // up on, which the scale taken from the display under the pointer does
-        // not when the two have different densities.
         let pixelScale = CGFloat(filter.pointPixelScale)
-        configuration.width = max(1, Int((plan.bounds.width * pixelScale).rounded(.up)))
-        configuration.height = max(1, Int((plan.bounds.height * pixelScale).rounded(.up)))
+        configuration.width = max(1, Int((CGFloat(display.width) * pixelScale).rounded()))
+        configuration.height = max(1, Int((CGFloat(display.height) * pixelScale).rounded()))
         configuration.showsCursor = false
         configuration.colorSpaceName = CGColorSpace.sRGB
-        return try? await SCScreenshotManager.captureImage(contentFilter: filter,
-                                                           configuration: configuration)
+        guard let image = try? await SCScreenshotManager.captureImage(contentFilter: filter,
+                                                                      configuration: configuration)
+        else { return nil }
+        let cocoaBounds = ScreenshotSupport.cocoaRect(fromWindowServer: plan.bounds,
+                                                      mainScreenHeight: mainScreen.frame.height)
+        let viewBounds = ScreenshotSupport.flippedViewRect(fromCocoa: cocoaBounds,
+                                                           screenFrame: screen.frame)
+        let imageBounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        let pixelBounds = ScreenshotSupport.imagePixelRect(
+            fromView: viewBounds,
+            viewSize: screen.frame.size,
+            imageSize: imageBounds.size)
+        let cropBounds = ScreenshotSupport.clamp(pixelBounds, to: imageBounds)
+        guard !cropBounds.isEmpty else { return nil }
+        return image.cropping(to: cropBounds)
     }
 
     /// The window's size as the window server knows it, used to tell a whole
