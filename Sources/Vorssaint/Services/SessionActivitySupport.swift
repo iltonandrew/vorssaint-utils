@@ -12,13 +12,14 @@ enum SessionActivitySupport {
     /// into a session that is already switched away is told so between
     /// `willFinishLaunching` and `didFinishLaunching`, which is before the
     /// services that own a tap exist to hear it. The flag is therefore read
-    /// once at startup, and anything unreadable counts as not on screen —
-    /// the cost of being wrong that way is a tap that waits for the switch
-    /// back, against a tap that stalls scrolling for the account in use.
+    /// once at startup. Anything unreadable counts as on screen because a
+    /// mistaken off state is permanent: an already-active session gets no
+    /// become-active notification. A mistaken on state is corrected by the
+    /// next resign notification.
     static func isOnConsole(_ session: [String: Any]?) -> Bool {
-        guard let value = session?[kCGSessionOnConsoleKey as String] else { return false }
+        guard let value = session?[kCGSessionOnConsoleKey as String] else { return true }
         if let flag = value as? Bool { return flag }
         if let number = value as? NSNumber { return number.boolValue }
-        return false
+        return true
     }
 }

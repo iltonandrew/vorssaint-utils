@@ -1099,7 +1099,8 @@ struct MetricsTests {
 
         // Launching into a session that is already switched away is announced
         // before the tap owners exist to hear it, so the state is read rather
-        // than assumed, and anything unreadable counts as off screen.
+        // than assumed. Anything unreadable counts as on screen because a
+        // wrong off state would never be corrected.
         let onConsoleKey = kCGSessionOnConsoleKey as String
         expect(SessionActivitySupport.isOnConsole([onConsoleKey: true]),
                "a session dictionary saying it holds the console reads as on screen")
@@ -1107,10 +1108,12 @@ struct MetricsTests {
                "a session dictionary saying it does not hold the console reads as off screen")
         expect(SessionActivitySupport.isOnConsole([onConsoleKey: NSNumber(value: 1)]),
                "the console flag is read when it arrives as a number")
-        expect(!SessionActivitySupport.isOnConsole(nil),
-               "an unreadable session reads as off screen rather than assuming the console")
-        expect(!SessionActivitySupport.isOnConsole([:]),
-               "a session without the console flag reads as off screen")
+        expect(SessionActivitySupport.isOnConsole(nil),
+               "an unreadable session reads as on screen because a wrong off would never be corrected")
+        expect(SessionActivitySupport.isOnConsole([:]),
+               "a session without the console flag reads as on screen because a wrong off would never be corrected")
+        expect(SessionActivitySupport.isOnConsole([onConsoleKey: "unexpected"]),
+               "an unexpected console flag reads as on screen because a wrong off would never be corrected")
 
         expect(MouseNavigationSupport.direction(
             forButtonNumber: MouseNavigationSupport.backButtonNumber) == .back,
