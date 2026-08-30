@@ -63,8 +63,9 @@ if (( DEV )) && [[ -z "$(developer_id_identity)" ]] \
         echo "  ⚠ Tools/setup-signing.sh failed; signing ad-hoc instead." >&2
         echo "    Accessibility and Screen Recording grants will not survive rebuilds:" >&2
         echo "    System Settings will show them as granted while the app is not trusted." >&2
-        echo "    After fixing the identity, clear the stale grant once with:" >&2
+        echo "    After fixing the identity, clear the stale grants once with:" >&2
         echo "      tccutil reset Accessibility $APP_BUNDLE_ID" >&2
+        echo "      tccutil reset ScreenCapture $APP_BUNDLE_ID" >&2
     fi
 fi
 

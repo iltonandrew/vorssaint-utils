@@ -19540,8 +19540,12 @@ struct MetricsTests {
         let signingSetup = (try? String(contentsOfFile: "Tools/setup-signing.sh",
                                         encoding: .utf8)) ?? ""
         expect(!signingSetup.isEmpty, "the signing setup script reads back for its shape check")
-        let signingSetupCode = signingSetup.components(separatedBy: "\n")
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }
+        let signingSetupCode = signingSetup.components(separatedBy: "\n").map { line in
+            if let index = line.firstIndex(of: "#") {
+                return String(line[..<index])
+            }
+            return line
+        }
             .joined(separator: "\n")
         expect(!signingSetupCode.contains("-legacy"),
                "setup-signing.sh avoids the -legacy flag the stock LibreSSL openssl rejects")
