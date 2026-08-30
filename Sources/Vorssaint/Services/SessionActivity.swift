@@ -25,9 +25,9 @@ final class SessionActivity {
     private var observers: [NSObjectProtocol] = []
     private var handlers: [(Bool) -> Void] = []
 
-    /// Subscribes before reading the current state, so a switch landing during
-    /// startup is seen rather than dropped between the two. macOS tells a
-    /// process launched into a switched-away session before
+    /// Registration and the initial read both happen before any main-queue
+    /// delivery can run, so there is no window in which a change is missed.
+    /// macOS tells a process launched into a switched-away session before
     /// `didFinishLaunching`, which is before the services that own a tap are
     /// built, so the state is read here rather than assumed.
     init(center: NotificationCenter = NSWorkspace.shared.notificationCenter,

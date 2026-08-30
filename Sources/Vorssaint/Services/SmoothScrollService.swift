@@ -64,9 +64,9 @@ final class SmoothScrollService: ObservableObject {
     func syncWithPreferences() {
         let wanted = AppFeature.smoothScroll.isAvailable
             && UserDefaults.standard.bool(forKey: DefaultsKey.smoothScrollEnabled)
-        if ScrollWheelSupport.tapShouldRun(featureWanted: wanted,
-                                           accessibilityGranted: Permissions.shared.accessibility,
-                                           sessionIsActive: SessionActivity.shared.isActive) {
+        if SessionActivitySupport.tapShouldRun(featureWanted: wanted,
+                                               accessibilityGranted: Permissions.shared.accessibility,
+                                               sessionIsActive: SessionActivity.shared.isActive) {
             start()
         } else {
             stop()
@@ -80,6 +80,9 @@ final class SmoothScrollService: ObservableObject {
 
     private func start() {
         guard tap == nil else {
+            if let tap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
             MouseAppExceptions.shared.setSourceTracking(true, for: .smoothScroll)
             isRunning = true
             return
@@ -99,12 +102,16 @@ final class SmoothScrollService: ObservableObject {
         ) else {
             MouseAppExceptions.shared.setSourceTracking(false, for: .smoothScroll)
             isRunning = false
+            // A create that fails during the session handoff gets one more look once the switch settles.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.syncWithPreferences() }
             return
         }
 
         self.tap = tap
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         runLoopSource = source
+        // Its isRunning is read from the tap callback, so it is built off the event path.
+        _ = ScrollInverter.shared
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
         isRunning = true

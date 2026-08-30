@@ -1080,21 +1080,21 @@ struct MetricsTests {
         // the one on screen: fast user switching leaves the process running
         // behind another account, where the tap still takes every scroll event
         // and stalls it (issue #1075).
-        expect(ScrollWheelSupport.tapShouldRun(featureWanted: true,
-                                               accessibilityGranted: true,
-                                               sessionIsActive: true),
+        expect(SessionActivitySupport.tapShouldRun(featureWanted: true,
+                                                   accessibilityGranted: true,
+                                                   sessionIsActive: true),
                "a wanted scroll tap runs in the session on screen")
-        expect(!ScrollWheelSupport.tapShouldRun(featureWanted: true,
-                                                accessibilityGranted: true,
-                                                sessionIsActive: false),
+        expect(!SessionActivitySupport.tapShouldRun(featureWanted: true,
+                                                    accessibilityGranted: true,
+                                                    sessionIsActive: false),
                "a wanted scroll tap is handed back while its session is switched away")
-        expect(!ScrollWheelSupport.tapShouldRun(featureWanted: false,
-                                                accessibilityGranted: true,
-                                                sessionIsActive: true),
+        expect(!SessionActivitySupport.tapShouldRun(featureWanted: false,
+                                                    accessibilityGranted: true,
+                                                    sessionIsActive: true),
                "an unwanted scroll tap stays off in the session on screen")
-        expect(!ScrollWheelSupport.tapShouldRun(featureWanted: true,
-                                                accessibilityGranted: false,
-                                                sessionIsActive: true),
+        expect(!SessionActivitySupport.tapShouldRun(featureWanted: true,
+                                                    accessibilityGranted: false,
+                                                    sessionIsActive: true),
                "a scroll tap needs Accessibility even in the session on screen")
 
         // Launching into a session that is already switched away is announced
@@ -1114,6 +1114,19 @@ struct MetricsTests {
                "a session without the console flag reads as on screen because a wrong off would never be corrected")
         expect(SessionActivitySupport.isOnConsole([onConsoleKey: "unexpected"]),
                "an unexpected console flag reads as on screen because a wrong off would never be corrected")
+
+        let privateCenter = NotificationCenter()
+        let activity = SessionActivity(center: privateCenter, initialIsActive: { true })
+        var observedTransitions: [Bool] = []
+        activity.onChange { observedTransitions.append($0) }
+        expect(activity.isActive, "session activity starts with the injected initial state")
+        privateCenter.post(name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+        expect(!activity.isActive, "session activity transitions to inactive on resign")
+        privateCenter.post(name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+        privateCenter.post(name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+        expect(activity.isActive, "session activity transitions to active on become-active")
+        expect(observedTransitions == [false, true],
+               "the session activity handler records each state change and ignores duplicate notifications")
 
         expect(MouseNavigationSupport.direction(
             forButtonNumber: MouseNavigationSupport.backButtonNumber) == .back,

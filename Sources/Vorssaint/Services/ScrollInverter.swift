@@ -48,9 +48,9 @@ final class ScrollInverter: ObservableObject {
         let wanted = AppFeature.scrollInverter.isAvailable
             && (defaults.bool(forKey: DefaultsKey.scrollInverterEnabled)
                 || defaults.bool(forKey: DefaultsKey.scrollInverterHorizontalEnabled))
-        if ScrollWheelSupport.tapShouldRun(featureWanted: wanted,
-                                           accessibilityGranted: Permissions.shared.accessibility,
-                                           sessionIsActive: SessionActivity.shared.isActive) {
+        if SessionActivitySupport.tapShouldRun(featureWanted: wanted,
+                                               accessibilityGranted: Permissions.shared.accessibility,
+                                               sessionIsActive: SessionActivity.shared.isActive) {
             start()
         } else {
             stop()
@@ -64,6 +64,9 @@ final class ScrollInverter: ObservableObject {
 
     private func start() {
         guard tap == nil else {
+            if let tap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
             MouseAppExceptions.shared.setSourceTracking(true, for: .scrollDirection)
             isRunning = true
             return
@@ -83,6 +86,8 @@ final class ScrollInverter: ObservableObject {
         ) else {
             MouseAppExceptions.shared.setSourceTracking(false, for: .scrollDirection)
             isRunning = false
+            // A create that fails during the session handoff gets one more look once the switch settles.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.syncWithPreferences() }
             return
         }
 
