@@ -125,6 +125,17 @@ enum ScreenshotCaptureEngine {
     /// ScreenCaptureKit when the private route is unavailable or when it
     /// returns only the visible slice of a window that runs off the screen.
     static func captureWindow(_ windowID: CGWindowID, scale: CGFloat) async -> CGImage? {
+        // A sheet or dialog the app stacked on the window is a window of its
+        // own, and neither single-window route draws it (issue #1098). The
+        // window list answers this without waiting on shareable content, so
+        // the ordinary capture keeps the faster route.
+        let onScreen = onScreenWindows()
+        if let target = onScreen.first(where: { $0.id == windowID }),
+           let plan = ScreenshotCapturePolicy.attachedCapturePlan(target: target,
+                                                                  frontToBack: onScreen),
+           let composited = await captureAttached(plan) {
+            return composited
+        }
         var clippedFallback: CGImage?
         if let image = WindowPreviewProvider.captureViaWindowServer(windowID) {
             let bounds = windowBounds(windowID)
@@ -148,6 +159,62 @@ enum ScreenshotCaptureEngine {
         let capture = try? await SCScreenshotManager.captureImage(contentFilter: filter,
                                                                   configuration: configuration)
         return capture ?? clippedFallback
+    }
+
+    /// On-screen windows front to back, as the attached-window decision needs
+    /// them. Ordinary layer-zero windows only, so a menu or the Dock cannot
+    /// read as something stacked on the clicked window.
+    private static func onScreenWindows() -> [ScreenshotCapturePolicy.CaptureWindow] {
+        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                    kCGNullWindowID) as? [[String: Any]]
+        else { return [] }
+        return info.compactMap { entry in
+            guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0,
+                  let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
+                  let id = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+                  let boundsDict = entry[kCGWindowBounds as String] as? [String: CGFloat]
+            else { return nil }
+            if let alpha = entry[kCGWindowAlpha as String] as? Double, alpha <= 0.01 { return nil }
+            return ScreenshotCapturePolicy.CaptureWindow(
+                id: id,
+                ownerPID: pid,
+                frame: CGRect(x: boundsDict["X"] ?? 0,
+                              y: boundsDict["Y"] ?? 0,
+                              width: boundsDict["Width"] ?? 0,
+                              height: boundsDict["Height"] ?? 0))
+        }
+    }
+
+    /// Draws the clicked window together with what the app stacked on it.
+    /// ScreenCaptureKit is the only route that takes more than one window, and
+    /// the source rectangle keeps the result to the area they cover instead of
+    /// the whole display. `nil` leaves the single-window routes to answer.
+    private static func captureAttached(
+        _ plan: ScreenshotCapturePolicy.AttachedCapturePlan) async -> CGImage? {
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(
+            false, onScreenWindowsOnly: true)
+        else { return nil }
+        let windows = plan.windowIDs.compactMap { id in
+            content.windows.first { $0.windowID == id }
+        }
+        guard windows.count == plan.windowIDs.count,
+              let display = content.displays.first(where: { $0.frame.intersects(plan.bounds) })
+        else { return nil }
+        let filter = SCContentFilter(display: display, including: windows)
+        let configuration = SCStreamConfiguration()
+        // The source rectangle is measured from the display's own origin.
+        configuration.sourceRect = plan.bounds.offsetBy(dx: -display.frame.origin.x,
+                                                        dy: -display.frame.origin.y)
+        // The filter knows the points-to-pixels factor of the display it ends
+        // up on, which the scale taken from the display under the pointer does
+        // not when the two have different densities.
+        let pixelScale = CGFloat(filter.pointPixelScale)
+        configuration.width = max(1, Int((plan.bounds.width * pixelScale).rounded(.up)))
+        configuration.height = max(1, Int((plan.bounds.height * pixelScale).rounded(.up)))
+        configuration.showsCursor = false
+        configuration.colorSpaceName = CGColorSpace.sRGB
+        return try? await SCScreenshotManager.captureImage(contentFilter: filter,
+                                                           configuration: configuration)
     }
 
     /// The window's size as the window server knows it, used to tell a whole
