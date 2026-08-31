@@ -230,13 +230,28 @@ enum RecorderSupport {
         ownWindowIDs.subtracting(protectedWindowIDs)
     }
 
+    enum CaptureFilterMode: Equatable {
+        case displayRegion
+        case independentWindow
+    }
+
+    static func captureFilterMode(clickedWindowID: CGWindowID?,
+                                  windowFrame: CGRect?,
+                                  displayFrame: CGRect?) -> CaptureFilterMode {
+        guard clickedWindowID != nil, let windowFrame else { return .displayRegion }
+        guard windowFrame.width > 0, windowFrame.height > 0,
+              let displayFrame, displayFrame.contains(windowFrame)
+        else { return .independentWindow }
+        return .displayRegion
+    }
+
     /// The area a recording covers, resolved once when the person confirms it
     /// and never recomputed: a window that moves keeps recording the region it
     /// was picked in, which is what the pointer track and the zoom assume.
     struct Region: Equatable {
         let displayID: CGDirectDisplayID
-        /// Set only when a window was clicked, so the stream can follow that
-        /// window's own buffer instead of a slice of the display.
+        /// Set only when a window was clicked, so its display bounds can be
+        /// recorded unless the window crosses a display edge.
         let windowID: CGWindowID?
         /// Top-left origin, in the display's pixels, already even on both axes.
         let pixelRect: CGRect
