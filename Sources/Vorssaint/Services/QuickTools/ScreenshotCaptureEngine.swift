@@ -197,9 +197,9 @@ enum ScreenshotCaptureEngine {
         }
     }
 
-    /// The geometric candidates Accessibility identifies as sheets of the
-    /// target or app-modal dialogs. `nil` means the app did not provide a window
-    /// map that names the target.
+    /// The geometric candidates Accessibility does not positively identify as
+    /// standard windows. `nil` means the app did not provide a window map that
+    /// names the target.
     private static func accessibilityAttachedWindowIDs(
         targetWindowID: CGWindowID,
         ownerPID: pid_t,
@@ -207,13 +207,11 @@ enum ScreenshotCaptureEngine {
         guard AXIsProcessTrusted() else { return nil }
         let candidateIDs = Set(candidateWindowIDs)
         let application = AXUIElementCreateApplication(ownerPID)
-        AXUIElementSetMessagingTimeout(application, 0.35)
         guard let windows = accessibilityElements(application, kAXWindowsAttribute as CFString)
         else { return nil }
 
         var elementsByID: [CGWindowID: AXUIElement] = [:]
         for window in windows {
-            AXUIElementSetMessagingTimeout(window, 0.35)
             if let id = AXWindowResolver.windowID(for: window) {
                 elementsByID[id] = window
             }
@@ -226,7 +224,6 @@ enum ScreenshotCaptureEngine {
         // Add only children with WindowServer ids in the geometric candidate set.
         if let children = accessibilityElements(target, kAXChildrenAttribute as CFString) {
             for child in children {
-                AXUIElementSetMessagingTimeout(child, 0.35)
                 if let id = AXWindowResolver.windowID(for: child), candidateIDs.contains(id) {
                     elementsByID[id] = child
                 }
@@ -235,18 +232,14 @@ enum ScreenshotCaptureEngine {
 
         var confirmed: Set<CGWindowID> = []
         for candidateID in candidateWindowIDs {
-            guard let element = elementsByID[candidateID] else { continue }
-            let subrole = accessibilityString(element, kAXSubroleAttribute as CFString)
-            if subrole == (kAXDialogSubrole as String)
-                || subrole == (kAXSystemDialogSubrole as String) {
+            guard let element = elementsByID[candidateID] else {
+                // AX had no answer for this one — only a window AX positively identifies as standard is filtered out.
                 confirmed.insert(candidateID)
                 continue
             }
-            guard accessibilityString(element, kAXRoleAttribute as CFString)
-                    == (kAXSheetRole as String),
-                  let parent = accessibilityElement(element, kAXParentAttribute as CFString),
-                  AXWindowResolver.windowID(for: parent) == targetWindowID
-            else { continue }
+            if accessibilityString(element, kAXSubroleAttribute as CFString) == (kAXStandardWindowSubrole as String) {
+                continue
+            }
             confirmed.insert(candidateID)
         }
         return confirmed
@@ -259,16 +252,6 @@ enum ScreenshotCaptureEngine {
               let elements = value as? [AXUIElement]
         else { return nil }
         return elements
-    }
-
-    private static func accessibilityElement(_ element: AXUIElement,
-                                             _ attribute: CFString) -> AXUIElement? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
-              let value,
-              CFGetTypeID(value) == AXUIElementGetTypeID()
-        else { return nil }
-        return (value as! AXUIElement)
     }
 
     private static func accessibilityString(_ element: AXUIElement,

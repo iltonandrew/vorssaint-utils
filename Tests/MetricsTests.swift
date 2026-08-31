@@ -14575,6 +14575,17 @@ struct MetricsTests {
         expect(accessibilityGate != nil && attachmentConfirmation != nil
                && accessibilityGate!.lowerBound < attachmentConfirmation!.lowerBound,
                "window capture checks its existing Accessibility grant before AX confirmation")
+        let accessibilityAttachedWindowIDsBody = (screenshotCaptureEngineSource
+            .components(separatedBy: "private static func accessibilityAttachedWindowIDs(").last ?? "")
+            .components(separatedBy: "\n    private static func accessibilityElements(").first ?? ""
+        let accessibilityAttachedWindowIDsCode = accessibilityAttachedWindowIDsBody
+            .components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        let unresolvedCandidatePasses = accessibilityAttachedWindowIDsCode.range(of: "guard let element = elementsByID[candidateID] else {\n                confirmed.insert(candidateID)\n                continue\n            }")
+        let standardWindowFails = accessibilityAttachedWindowIDsCode.range(of: "if accessibilityString(element, kAXSubroleAttribute as CFString) == (kAXStandardWindowSubrole as String) {\n                continue\n            }\n            confirmed.insert(candidateID)")
+        expect(unresolvedCandidatePasses != nil && standardWindowFails != nil,
+               "AX keeps unresolved candidates and excludes only identified standard windows")
 
         expect(ScreenshotSupport.sanitizedDelay(5) == 5
                 && ScreenshotSupport.sanitizedDelay(7) == 0
