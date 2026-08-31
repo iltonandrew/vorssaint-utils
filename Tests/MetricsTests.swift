@@ -19036,27 +19036,27 @@ struct MetricsTests {
         let containedRecorderWindow = CGRect(x: 120, y: 80, width: 800, height: 600)
         expect(RecorderSupport.captureFilterMode(
             clickedWindowID: nil,
-            windowFrame: nil,
+            selectionFrame: nil,
             displayFrame: recorderDisplayFrame) == .displayRegion,
                "a drawn recording region keeps the ordinary display filter")
         expect(RecorderSupport.captureFilterMode(
             clickedWindowID: 7,
-            windowFrame: containedRecorderWindow,
+            selectionFrame: containedRecorderWindow,
             displayFrame: recorderDisplayFrame) == .displayRegion,
                "a clicked window inside one display records its bounds from that display")
         expect(RecorderSupport.captureFilterMode(
             clickedWindowID: 7,
-            windowFrame: CGRect(x: 1_200, y: 80, width: 800, height: 600),
+            selectionFrame: CGRect(x: 1_200, y: 80, width: 800, height: 600),
             displayFrame: recorderDisplayFrame) == .independentWindow,
                "a clicked window crossing a display edge keeps independent-window capture")
         expect(RecorderSupport.captureFilterMode(
             clickedWindowID: 7,
-            windowFrame: containedRecorderWindow,
+            selectionFrame: containedRecorderWindow,
             displayFrame: nil) == .independentWindow,
                "a clicked window without its selected display keeps independent-window capture")
         expect(RecorderSupport.captureFilterMode(
             clickedWindowID: 7,
-            windowFrame: nil,
+            selectionFrame: nil,
             displayFrame: recorderDisplayFrame) == .displayRegion,
                "an unresolved clicked window preserves the existing display fallback")
 
@@ -19087,12 +19087,34 @@ struct MetricsTests {
                 && !displayFilterBranch.contains("desktopIndependentWindow:")
                 && !displayFilterBranch.contains("excludingWindows:"),
                "the bounded mode uses application exclusion, never a fixed window list")
+        expect(recorderCaptureCode.contains("selectionFrame: region.anchorRect")
+                && !recorderCaptureCode.contains("selectionFrame: window?.frame"),
+               "capture mode uses the selection-time rectangle, never a moved window frame")
         expect(recorderCaptureCode.contains(
             "configuration.scalesToFit = preparedFilter.mode == .independentWindow")
                 && recorderCaptureCode.contains("if preparedFilter.mode == .displayRegion {")
                 && recorderCaptureCode.contains(
                     "configuration.sourceRect = Self.sourceRect(for: region)"),
                "the two filter modes configure independent scaling or fixed display bounds")
+
+        let recorderServiceSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/Recorder/ScreenRecorderService.swift",
+            encoding: .utf8)) ?? ""
+        expect(!recorderServiceSource.isEmpty,
+               "the recorder service reads back for its region-guide wiring check")
+        let recorderServiceCode = recorderServiceSource.components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        let recorderRecordMethod = recorderServiceCode.components(separatedBy: "func record(")
+            .dropFirst().first?.components(separatedBy: "private func prepareCountdown").first ?? ""
+        expect(recorderRecordMethod.contains("let filterMode = RecorderSupport.captureFilterMode(")
+                && recorderRecordMethod.contains("selectionFrame: region.anchorRect")
+                && recorderRecordMethod.contains("displayFrame: screen?.frame")
+                && recorderRecordMethod.contains("if filterMode == .displayRegion {\n            indicator.showRegionGuide(for: region)\n        }")
+                && recorderRecordMethod.components(
+                    separatedBy: "indicator.showRegionGuide(for: region)").count == 2
+                && !recorderRecordMethod.contains("if filterMode == .independentWindow {\n            indicator.showRegionGuide"),
+               "the region guide follows bounded mode and stays absent for the independent fallback")
 
         expect(RecordingShareDuration.allCases.map(\.rawValue) == [3_600, 21_600],
                "recording links allow only one or six hours")

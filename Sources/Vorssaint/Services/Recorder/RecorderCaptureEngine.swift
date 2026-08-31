@@ -207,7 +207,7 @@ final class RecorderCaptureEngine: NSObject {
         let display = content.displays.first(where: { $0.displayID == region.displayID })
         let mode = RecorderSupport.captureFilterMode(
             clickedWindowID: region.windowID,
-            windowFrame: window?.frame,
+            selectionFrame: region.anchorRect,
             displayFrame: display?.frame)
 
         switch mode {

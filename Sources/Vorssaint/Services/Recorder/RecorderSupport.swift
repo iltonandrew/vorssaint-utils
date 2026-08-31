@@ -236,11 +236,11 @@ enum RecorderSupport {
     }
 
     static func captureFilterMode(clickedWindowID: CGWindowID?,
-                                  windowFrame: CGRect?,
+                                  selectionFrame: CGRect?,
                                   displayFrame: CGRect?) -> CaptureFilterMode {
-        guard clickedWindowID != nil, let windowFrame else { return .displayRegion }
-        guard windowFrame.width > 0, windowFrame.height > 0,
-              let displayFrame, displayFrame.contains(windowFrame)
+        guard clickedWindowID != nil, let selectionFrame else { return .displayRegion }
+        guard selectionFrame.width > 0, selectionFrame.height > 0,
+              let displayFrame, displayFrame.contains(selectionFrame)
         else { return .independentWindow }
         return .displayRegion
     }
