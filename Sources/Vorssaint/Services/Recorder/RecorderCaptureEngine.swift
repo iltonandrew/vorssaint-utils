@@ -217,17 +217,12 @@ final class RecorderCaptureEngine: NSObject {
                                   mode: mode)
         case .displayRegion:
             guard let display else { return nil }
+            // The fixed display rectangle records the current Space, so a Space
+            // switch records what replaces the window there, matching the
+            // fixed-rectangle contract assumed by the pointer track.
             let excluded = Set(windowNumbers.map { CGWindowID($0) })
             let ownPID = NSRunningApplication.current.processIdentifier
             let ownWindows = content.windows.filter { $0.owningApplication?.processID == ownPID }
-            if window != nil {
-                let protectedWindows = ownWindows.filter { excluded.contains($0.windowID) }
-                return PreparedFilter(
-                    content: SCContentFilter(display: display,
-                                             excludingWindows: protectedWindows),
-                    mode: mode)
-            }
-
             guard let ownApplication = content.applications.first(where: { $0.processID == ownPID })
                     ?? ownWindows.compactMap(\.owningApplication).first else { return nil }
             let exceptedIDs = RecorderSupport.exceptedOwnWindowIDs(

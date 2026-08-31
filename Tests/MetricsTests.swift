@@ -19079,11 +19079,14 @@ struct MetricsTests {
         let displayFilterBranch = recorderFilterSwitch
             .components(separatedBy: "case .displayRegion:").dropFirst().first ?? ""
         expect(independentFilterBranch.contains("SCContentFilter(desktopIndependentWindow: window)")
+                && !independentFilterBranch.contains("excludingApplications:")
                 && !independentFilterBranch.contains("excludingWindows:"),
                "the independent mode uses only the straddling-window filter")
-        expect(displayFilterBranch.contains("excludingWindows: protectedWindows")
-                && !displayFilterBranch.contains("desktopIndependentWindow:"),
-               "the contained-window mode uses only the bounds-limited display filter")
+        expect(displayFilterBranch.contains("excludingApplications: [ownApplication]")
+                && displayFilterBranch.contains("exceptingWindows: ordinaryWindows")
+                && !displayFilterBranch.contains("desktopIndependentWindow:")
+                && !displayFilterBranch.contains("excludingWindows:"),
+               "the bounded mode uses application exclusion, never a fixed window list")
         expect(recorderCaptureCode.contains(
             "configuration.scalesToFit = preparedFilter.mode == .independentWindow")
                 && recorderCaptureCode.contains("if preparedFilter.mode == .displayRegion {")
