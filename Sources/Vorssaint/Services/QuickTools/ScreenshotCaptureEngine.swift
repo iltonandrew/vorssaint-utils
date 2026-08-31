@@ -197,8 +197,9 @@ enum ScreenshotCaptureEngine {
         let windows = plan.windowIDs.compactMap { id in
             content.windows.first { $0.windowID == id }
         }
+        // A window straddling displays has no single display to crop from; the single-window routes already handle the partial case.
         guard windows.count == plan.windowIDs.count,
-              let display = content.displays.first(where: { $0.frame.intersects(plan.bounds) }),
+              let display = content.displays.first(where: { $0.frame.contains(plan.bounds) }),
               let screen = NSScreen.screens.first(where: { $0.displayID == display.displayID }),
               let mainScreen = NSScreen.screens.first
         else { return nil }

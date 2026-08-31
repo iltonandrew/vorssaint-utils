@@ -14545,6 +14545,20 @@ struct MetricsTests {
         expect(ScreenshotCapturePolicy.attachedCapturePlan(
             target: capturedWindow, frontToBack: [sheet]) == nil,
                "a window missing from the list does not treat everything as stacked on it")
+        let screenshotCaptureSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/QuickTools/ScreenshotCaptureEngine.swift",
+            encoding: .utf8)) ?? ""
+        let captureAttachedParts = (screenshotCaptureSource
+            .components(separatedBy: "func captureAttached").last ?? "")
+            .components(separatedBy: "\n    private static func ")
+        let captureAttachedCode = (captureAttachedParts.first ?? "")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        expect(captureAttachedParts.count > 1
+                && captureAttachedCode.contains(".contains(plan.bounds)")
+                && !captureAttachedCode.contains(".intersects(plan.bounds)"),
+               "a window straddling two displays falls back to the single-window capture instead of a one-display slice")
 
         expect(ScreenshotSupport.sanitizedDelay(5) == 5
                 && ScreenshotSupport.sanitizedDelay(7) == 0
