@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Vorssaint
 
 import AppKit
+import ApplicationServices
 import ScreenCaptureKit
 
 /// Raw pixel acquisition for the screenshot tool. Displays go through
@@ -131,10 +132,21 @@ enum ScreenshotCaptureEngine {
         // the ordinary capture keeps the faster route.
         let onScreen = onScreenWindows()
         if let target = onScreen.first(where: { $0.id == windowID }),
-           let plan = ScreenshotCapturePolicy.attachedCapturePlan(target: target,
-                                                                  frontToBack: onScreen),
-           let composited = await captureAttached(plan) {
-            return composited
+           let geometricPlan = ScreenshotCapturePolicy.attachedCapturePlan(
+               target: target, frontToBack: onScreen) {
+            var plan: ScreenshotCapturePolicy.AttachedCapturePlan? = geometricPlan
+            if Permissions.shared.accessibility {
+                let confirmedIDs = accessibilityAttachedWindowIDs(
+                    targetWindowID: target.id,
+                    ownerPID: target.ownerPID,
+                    candidateWindowIDs: Array(geometricPlan.windowIDs.dropFirst()))
+                plan = ScreenshotCapturePolicy.confirmedAttachment(
+                    geometricPlan, confirmedIDs: confirmedIDs)
+            }
+            if let plan,
+               let composited = await captureAttached(plan) {
+                return composited
+            }
         }
         var clippedFallback: CGImage?
         if let image = WindowPreviewProvider.captureViaWindowServer(windowID) {
@@ -183,6 +195,88 @@ enum ScreenshotCaptureEngine {
                               width: boundsDict["Width"] ?? 0,
                               height: boundsDict["Height"] ?? 0))
         }
+    }
+
+    /// The geometric candidates Accessibility identifies as sheets of the
+    /// target or app-modal dialogs. `nil` means the app did not provide a window
+    /// map that names the target.
+    private static func accessibilityAttachedWindowIDs(
+        targetWindowID: CGWindowID,
+        ownerPID: pid_t,
+        candidateWindowIDs: [CGWindowID]) -> Set<CGWindowID>? {
+        guard AXIsProcessTrusted() else { return nil }
+        let candidateIDs = Set(candidateWindowIDs)
+        let application = AXUIElementCreateApplication(ownerPID)
+        AXUIElementSetMessagingTimeout(application, 0.35)
+        guard let windows = accessibilityElements(application, kAXWindowsAttribute as CFString)
+        else { return nil }
+
+        var elementsByID: [CGWindowID: AXUIElement] = [:]
+        for window in windows {
+            AXUIElementSetMessagingTimeout(window, 0.35)
+            if let id = AXWindowResolver.windowID(for: window) {
+                elementsByID[id] = window
+            }
+        }
+        guard !elementsByID.isEmpty,
+              let target = elementsByID[targetWindowID]
+        else { return nil }
+
+        // The public AX hierarchy makes sheets direct children of their window.
+        // Add only children with WindowServer ids in the geometric candidate set.
+        if let children = accessibilityElements(target, kAXChildrenAttribute as CFString) {
+            for child in children {
+                AXUIElementSetMessagingTimeout(child, 0.35)
+                if let id = AXWindowResolver.windowID(for: child), candidateIDs.contains(id) {
+                    elementsByID[id] = child
+                }
+            }
+        }
+
+        var confirmed: Set<CGWindowID> = []
+        for candidateID in candidateWindowIDs {
+            guard let element = elementsByID[candidateID] else { continue }
+            let subrole = accessibilityString(element, kAXSubroleAttribute as CFString)
+            if subrole == (kAXDialogSubrole as String)
+                || subrole == (kAXSystemDialogSubrole as String) {
+                confirmed.insert(candidateID)
+                continue
+            }
+            guard accessibilityString(element, kAXRoleAttribute as CFString)
+                    == (kAXSheetRole as String),
+                  let parent = accessibilityElement(element, kAXParentAttribute as CFString),
+                  AXWindowResolver.windowID(for: parent) == targetWindowID
+            else { continue }
+            confirmed.insert(candidateID)
+        }
+        return confirmed
+    }
+
+    private static func accessibilityElements(_ element: AXUIElement,
+                                              _ attribute: CFString) -> [AXUIElement]? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
+              let elements = value as? [AXUIElement]
+        else { return nil }
+        return elements
+    }
+
+    private static func accessibilityElement(_ element: AXUIElement,
+                                             _ attribute: CFString) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
+              let value,
+              CFGetTypeID(value) == AXUIElementGetTypeID()
+        else { return nil }
+        return (value as! AXUIElement)
+    }
+
+    private static func accessibilityString(_ element: AXUIElement,
+                                            _ attribute: CFString) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success
+        else { return nil }
+        return value as? String
     }
 
     /// Draws the clicked window together with what the app stacked on it.
