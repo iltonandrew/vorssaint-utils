@@ -205,7 +205,6 @@ enum ScreenshotCaptureEngine {
         ownerPID: pid_t,
         candidateWindowIDs: [CGWindowID]) -> Set<CGWindowID>? {
         guard AXIsProcessTrusted() else { return nil }
-        let candidateIDs = Set(candidateWindowIDs)
         let application = AXUIElementCreateApplication(ownerPID)
         guard let windows = accessibilityElements(application, kAXWindowsAttribute as CFString)
         else { return nil }
@@ -217,18 +216,8 @@ enum ScreenshotCaptureEngine {
             }
         }
         guard !elementsByID.isEmpty,
-              let target = elementsByID[targetWindowID]
+              elementsByID[targetWindowID] != nil
         else { return nil }
-
-        // The public AX hierarchy makes sheets direct children of their window.
-        // Add only children with WindowServer ids in the geometric candidate set.
-        if let children = accessibilityElements(target, kAXChildrenAttribute as CFString) {
-            for child in children {
-                if let id = AXWindowResolver.windowID(for: child), candidateIDs.contains(id) {
-                    elementsByID[id] = child
-                }
-            }
-        }
 
         var confirmed: Set<CGWindowID> = []
         for candidateID in candidateWindowIDs {
@@ -237,7 +226,9 @@ enum ScreenshotCaptureEngine {
                 confirmed.insert(candidateID)
                 continue
             }
-            if accessibilityString(element, kAXSubroleAttribute as CFString) == (kAXStandardWindowSubrole as String) {
+            // The standard set matches what the auto-quit and enumeration paths already read.
+            if let subrole = accessibilityString(element, kAXSubroleAttribute as CFString),
+               subrole == (kAXStandardWindowSubrole as String) || subrole == "AXFullScreenWindow" {
                 continue
             }
             confirmed.insert(candidateID)

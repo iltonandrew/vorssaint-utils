@@ -14583,8 +14583,9 @@ struct MetricsTests {
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
         let unresolvedCandidatePasses = accessibilityAttachedWindowIDsCode.range(of: "guard let element = elementsByID[candidateID] else {\n                confirmed.insert(candidateID)\n                continue\n            }")
-        let standardWindowFails = accessibilityAttachedWindowIDsCode.range(of: "if accessibilityString(element, kAXSubroleAttribute as CFString) == (kAXStandardWindowSubrole as String) {\n                continue\n            }\n            confirmed.insert(candidateID)")
-        expect(unresolvedCandidatePasses != nil && standardWindowFails != nil,
+        let standardWindowFails = accessibilityAttachedWindowIDsCode.range(of: "if let subrole = accessibilityString(element, kAXSubroleAttribute as CFString),\n               subrole == (kAXStandardWindowSubrole as String) || subrole == \"AXFullScreenWindow\" {\n                continue\n            }\n            confirmed.insert(candidateID)")
+        let childrenPassIsAbsent = !accessibilityAttachedWindowIDsCode.contains("kAXChildrenAttribute")
+        expect(unresolvedCandidatePasses != nil && standardWindowFails != nil && childrenPassIsAbsent,
                "AX keeps unresolved candidates and excludes only identified standard windows")
 
         expect(ScreenshotSupport.sanitizedDelay(5) == 5
