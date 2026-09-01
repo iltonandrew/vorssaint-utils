@@ -82,11 +82,11 @@ final class RecorderCaptureEngine: NSObject {
         // Keep the call and optional binding as separate type-checking targets.
         // Older Swift compilers otherwise crash in their constraint walker when
         // this expression sits inside the larger async start routine.
-        let preparedFilter: PreparedFilter? = Self.filter(
+        let preparedFilter: SCContentFilter? = Self.filter(
             for: region,
             in: content,
             excluding: excludedWindowNumbers)
-        guard let preparedFilter else { return .noContent }
+        guard let filter = preparedFilter else { return .noContent }
 
         let configuration = SCStreamConfiguration()
         configuration.width = Int(region.pixelRect.width)
@@ -95,9 +95,9 @@ final class RecorderCaptureEngine: NSObject {
                                                     timescale: CMTimeScale(frameRate))
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.colorSpaceName = CGColorSpace.sRGB
-        // The straddling-window fallback keeps the output dimensions chosen
-        // when recording starts as that window's buffer changes size.
-        configuration.scalesToFit = preparedFilter.mode == .independentWindow
+        // The recorded rectangle is fixed and the source rect matches the
+        // output size, so there is nothing to scale into the frame.
+        configuration.scalesToFit = false
         configuration.preservesAspectRatio = true
         configuration.captureResolution = .best
         // The pointer is drawn by us afterwards, from the track the sampler
@@ -109,9 +109,7 @@ final class RecorderCaptureEngine: NSObject {
         // they would be baked into the frame the background is drawn behind.
         configuration.ignoreShadowsDisplay = true
         configuration.ignoreShadowsSingleWindow = true
-        if preparedFilter.mode == .displayRegion {
-            configuration.sourceRect = Self.sourceRect(for: region)
-        }
+        configuration.sourceRect = Self.sourceRect(for: region)
         if capturesSystemAudio {
             configuration.capturesAudio = true
             configuration.sampleRate = 48_000
@@ -120,9 +118,7 @@ final class RecorderCaptureEngine: NSObject {
             configuration.excludesCurrentProcessAudio = true
         }
 
-        let stream = SCStream(filter: preparedFilter.content,
-                              configuration: configuration,
-                              delegate: self)
+        let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         do {
             try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
             if capturesSystemAudio {
@@ -193,53 +189,28 @@ final class RecorderCaptureEngine: NSObject {
 
     // MARK: - Filter
 
-    private struct PreparedFilter {
-        let content: SCContentFilter
-        let mode: RecorderSupport.CaptureFilterMode
-    }
-
     private static func filter(for region: RecorderSupport.Region,
                                in content: SCShareableContent,
-                               excluding windowNumbers: [Int]) -> PreparedFilter? {
-        let window = region.windowID.flatMap { windowID in
-            content.windows.first(where: { $0.windowID == windowID })
-        }
-        let display = content.displays.first(where: { $0.displayID == region.displayID })
-        // The mode is judged in Cocoa space at both call sites, so the guide and the filter cannot disagree about which mode applies.
-        let mode = RecorderSupport.captureFilterMode(
-            clickedWindowID: region.windowID,
-            selectionFrame: region.anchorRect,
-            displayFrame: NSScreen.screens.first { $0.displayID == region.displayID }?.frame)
-
-        switch mode {
-        case .independentWindow:
-            guard let window else {
-                // A window gone by the time the stream starts records its display, as main did.
-                fallthrough
-            }
-            return PreparedFilter(content: SCContentFilter(desktopIndependentWindow: window),
-                                  mode: mode)
-        case .displayRegion:
-            guard let display else { return nil }
-            // The fixed display rectangle records the current Space, so a Space
-            // switch records what replaces the window there, matching the
-            // fixed-rectangle contract assumed by the pointer track.
-            let excluded = Set(windowNumbers.map { CGWindowID($0) })
-            let ownPID = NSRunningApplication.current.processIdentifier
-            let ownWindows = content.windows.filter { $0.owningApplication?.processID == ownPID }
-            guard let ownApplication = content.applications.first(where: { $0.processID == ownPID })
-                    ?? ownWindows.compactMap(\.owningApplication).first else { return nil }
-            let exceptedIDs = RecorderSupport.exceptedOwnWindowIDs(
-                ownWindowIDs: Set(ownWindows.map(\.windowID)),
-                protectedWindowIDs: excluded
-            )
-            let ordinaryWindows = ownWindows.filter { exceptedIDs.contains($0.windowID) }
-            return PreparedFilter(
-                content: SCContentFilter(display: display,
-                                         excludingApplications: [ownApplication],
-                                         exceptingWindows: ordinaryWindows),
-                mode: .displayRegion)
-        }
+                               excluding windowNumbers: [Int]) -> SCContentFilter? {
+        guard let display = content.displays.first(where: { $0.displayID == region.displayID })
+        else { return nil }
+        // Every recording is a fixed rectangle of its display, so what the app
+        // stacks inside it is captured without anything to track. The rectangle
+        // records the current Space, so a Space switch records what replaces
+        // the window there.
+        let excluded = Set(windowNumbers.map { CGWindowID($0) })
+        let ownPID = NSRunningApplication.current.processIdentifier
+        let ownWindows = content.windows.filter { $0.owningApplication?.processID == ownPID }
+        guard let ownApplication = content.applications.first(where: { $0.processID == ownPID })
+                ?? ownWindows.compactMap(\.owningApplication).first else { return nil }
+        let exceptedIDs = RecorderSupport.exceptedOwnWindowIDs(
+            ownWindowIDs: Set(ownWindows.map(\.windowID)),
+            protectedWindowIDs: excluded
+        )
+        let ordinaryWindows = ownWindows.filter { exceptedIDs.contains($0.windowID) }
+        return SCContentFilter(display: display,
+                               excludingApplications: [ownApplication],
+                               exceptingWindows: ordinaryWindows)
     }
 
     /// The recorded area inside the display, in points with a top-left origin,

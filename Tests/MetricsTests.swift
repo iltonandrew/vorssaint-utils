@@ -19032,37 +19032,24 @@ struct MetricsTests {
             ownWindowIDs: [1, 2, 3], protectedWindowIDs: [2, 4]) == [1, 3],
                "recording keeps existing ordinary app windows but never its protected chrome")
 
-        let recorderDisplayFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
-        let containedRecorderWindow = CGRect(x: 120, y: 80, width: 800, height: 600)
-        expect(RecorderSupport.captureFilterMode(
-            clickedWindowID: nil,
-            selectionFrame: nil,
-            displayFrame: recorderDisplayFrame) == .displayRegion,
-               "a drawn recording region keeps the ordinary display filter")
-        expect(RecorderSupport.captureFilterMode(
-            clickedWindowID: 7,
-            selectionFrame: containedRecorderWindow,
-            displayFrame: recorderDisplayFrame) == .displayRegion,
-               "a clicked window inside one display records its bounds from that display")
-        expect(RecorderSupport.captureFilterMode(
-            clickedWindowID: 7,
-            selectionFrame: CGRect(x: 1_200, y: 80, width: 800, height: 600),
-            displayFrame: recorderDisplayFrame) == .independentWindow,
-               "a clicked window crossing a display edge keeps independent-window capture")
-        expect(RecorderSupport.captureFilterMode(
-            clickedWindowID: 7,
-            selectionFrame: containedRecorderWindow,
-            displayFrame: nil) == .independentWindow,
-               "a clicked window without its selected display keeps independent-window capture")
-        expect(RecorderSupport.captureFilterMode(
-            clickedWindowID: 7,
-            selectionFrame: nil,
-            displayFrame: recorderDisplayFrame) == .displayRegion,
-               "an unresolved clicked window preserves the existing display fallback")
+        // A clicked window is clipped to the display it was picked from before
+        // it ever becomes a Region, which is why recording needs no straddling
+        // fallback: there is no rectangle that escapes its display.
+        let recorderDisplayPixels = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let straddlingWindow = CGRect(x: 1_200, y: 80, width: 800, height: 600)
+        let clippedWindow = RecorderSupport.snappedPixelRect(straddlingWindow,
+                                                             in: recorderDisplayPixels)
+        expect(recorderDisplayPixels.contains(clippedWindow)
+                && clippedWindow.width > 0 && clippedWindow.height > 0,
+               "a clicked window crossing a display edge records the part on the selected display")
+        let containedWindow = CGRect(x: 120, y: 80, width: 800, height: 600)
+        expect(RecorderSupport.snappedPixelRect(containedWindow, in: recorderDisplayPixels)
+                == containedWindow,
+               "a clicked window inside one display keeps the rectangle it was picked with")
 
-        // ScreenCaptureKit wiring cannot run in this helper binary. Comments
-        // are stripped, and each mode is checked for its own initializer and
-        // against the other one, so either direction drifting fails the test.
+        // ScreenCaptureKit wiring cannot run in this helper binary, so the
+        // single filter construction is checked by shape. Comments are stripped
+        // so a mention in prose cannot satisfy a check.
         let recorderCaptureSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/Services/Recorder/RecorderCaptureEngine.swift",
             encoding: .utf8)) ?? ""
@@ -19071,35 +19058,18 @@ struct MetricsTests {
         let recorderCaptureCode = recorderCaptureSource.components(separatedBy: "\n")
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
-        let recorderFilterSwitch = recorderCaptureCode.components(separatedBy: "switch mode {")
-            .dropFirst().first?.components(separatedBy: "private static func sourceRect").first ?? ""
-        let independentFilterBranch = recorderFilterSwitch
-            .components(separatedBy: "case .independentWindow:").dropFirst().first?
-            .components(separatedBy: "case .displayRegion:").first ?? ""
-        let displayFilterBranch = recorderFilterSwitch
-            .components(separatedBy: "case .displayRegion:").dropFirst().first ?? ""
-        expect(independentFilterBranch.contains("SCContentFilter(desktopIndependentWindow: window)")
-                && independentFilterBranch.contains("guard let window else {")
-                && independentFilterBranch.contains("fallthrough")
-                && !independentFilterBranch.contains("return nil")
-                && !independentFilterBranch.contains("excludingApplications:")
-                && !independentFilterBranch.contains("excludingWindows:"),
-               "the independent mode keeps a found straddling window independent and sends a missing one to display capture")
-        expect(displayFilterBranch.contains("excludingApplications: [ownApplication]")
-                && displayFilterBranch.contains("exceptingWindows: ordinaryWindows")
-                && !displayFilterBranch.contains("desktopIndependentWindow:")
-                && !displayFilterBranch.contains("excludingWindows:")
-                && displayFilterBranch.contains("mode: .displayRegion"),
-               "the bounded mode and missing-window fallback use the display filter with display-region configuration")
-        expect(recorderCaptureCode.contains("selectionFrame: region.anchorRect")
-                && !recorderCaptureCode.contains("selectionFrame: window?.frame"),
-               "capture mode uses the selection-time rectangle, never a moved window frame")
-        expect(recorderCaptureCode.contains(
-            "configuration.scalesToFit = preparedFilter.mode == .independentWindow")
-                && recorderCaptureCode.contains("if preparedFilter.mode == .displayRegion {")
-                && recorderCaptureCode.contains(
-                    "configuration.sourceRect = Self.sourceRect(for: region)"),
-               "the two filter modes configure independent scaling or fixed display bounds")
+        expect(recorderCaptureCode.contains("excludingApplications: [ownApplication]")
+                && recorderCaptureCode.contains("exceptingWindows: ordinaryWindows")
+                && !recorderCaptureCode.contains("desktopIndependentWindow")
+                && !recorderCaptureCode.contains("excludingWindows:"),
+               "recording builds one display filter that excludes the app with its ordinary windows")
+        expect(recorderCaptureCode.contains("configuration.sourceRect = Self.sourceRect(for: region)")
+                && !recorderCaptureCode.contains("if preparedFilter.mode")
+                && recorderCaptureCode.contains("configuration.scalesToFit = false"),
+               "every recording fixes its source rectangle and scales nothing into the frame")
+        expect(!recorderCaptureCode.contains("captureFilterMode")
+                && !recorderCaptureCode.contains("region.windowID"),
+               "the capture engine no longer resolves a filter mode or a clicked window")
 
         let recorderServiceSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/Services/Recorder/ScreenRecorderService.swift",
@@ -19111,25 +19081,17 @@ struct MetricsTests {
             .joined(separator: "\n")
         let recorderRecordMethod = recorderServiceCode.components(separatedBy: "func record(")
             .dropFirst().first?.components(separatedBy: "private func prepareCountdown").first ?? ""
-        let recorderCaptureModeCall = recorderCaptureCode.components(
-            separatedBy: "let mode = RecorderSupport.captureFilterMode(")
-            .dropFirst().first?.components(separatedBy: ")\n\n        switch mode").first ?? ""
-        let recorderServiceModeCall = recorderRecordMethod.components(
-            separatedBy: "let filterMode = RecorderSupport.captureFilterMode(")
-            .dropFirst().first?.components(separatedBy: ")\n        if filterMode").first ?? ""
-        expect(recorderCaptureModeCall.contains("NSScreen.screens")
-                && recorderServiceModeCall.contains("NSScreen.screens")
-                && !recorderCaptureModeCall.contains("display?.frame")
-                && !recorderServiceModeCall.contains("display?.frame"),
-               "both capture-mode callers derive their display frame from NSScreen, never a ScreenCaptureKit display frame")
-        expect(recorderRecordMethod.contains("let filterMode = RecorderSupport.captureFilterMode(")
-                && recorderRecordMethod.contains("selectionFrame: region.anchorRect")
-                && recorderRecordMethod.contains("displayFrame: NSScreen.screens.first { $0.displayID == region.displayID }?.frame")
-                && recorderRecordMethod.contains("if filterMode == .displayRegion {\n            indicator.showRegionGuide(for: region)\n        }")
+        expect(recorderRecordMethod.contains("indicator.showRegionGuide(for: region)")
                 && recorderRecordMethod.components(
                     separatedBy: "indicator.showRegionGuide(for: region)").count == 2
-                && !recorderRecordMethod.contains("if filterMode == .independentWindow {\n            indicator.showRegionGuide"),
-               "the region guide follows bounded mode and stays absent for the independent fallback")
+                && !recorderRecordMethod.contains("captureFilterMode"),
+               "every recording shows the boundary of the rectangle it records")
+
+        let recorderSupportSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/Recorder/RecorderSupport.swift",
+            encoding: .utf8)) ?? ""
+        expect(!recorderSupportSource.isEmpty && !recorderSupportSource.contains("CaptureFilterMode"),
+               "no capture filter mode survives for a straddling case the selection cannot produce")
 
         expect(RecordingShareDuration.allCases.map(\.rawValue) == [3_600, 21_600],
                "recording links allow only one or six hours")

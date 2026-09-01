@@ -305,13 +305,7 @@ final class ScreenRecorderService: ObservableObject {
         let indicator = RecorderIndicator(
             onPause: { [weak self] in self?.togglePause() },
             onStop: { [weak self] in self?.stop() })
-        let filterMode = RecorderSupport.captureFilterMode(
-            clickedWindowID: region.windowID,
-            selectionFrame: region.anchorRect,
-            displayFrame: NSScreen.screens.first { $0.displayID == region.displayID }?.frame)
-        if filterMode == .displayRegion {
-            indicator.showRegionGuide(for: region)
-        }
+        indicator.showRegionGuide(for: region)
         self.indicator = indicator
         pendingStartGeneration &+= 1
         let generation = pendingStartGeneration
