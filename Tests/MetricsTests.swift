@@ -19079,14 +19079,18 @@ struct MetricsTests {
         let displayFilterBranch = recorderFilterSwitch
             .components(separatedBy: "case .displayRegion:").dropFirst().first ?? ""
         expect(independentFilterBranch.contains("SCContentFilter(desktopIndependentWindow: window)")
+                && independentFilterBranch.contains("guard let window else {")
+                && independentFilterBranch.contains("fallthrough")
+                && !independentFilterBranch.contains("return nil")
                 && !independentFilterBranch.contains("excludingApplications:")
                 && !independentFilterBranch.contains("excludingWindows:"),
-               "the independent mode uses only the straddling-window filter")
+               "the independent mode keeps a found straddling window independent and sends a missing one to display capture")
         expect(displayFilterBranch.contains("excludingApplications: [ownApplication]")
                 && displayFilterBranch.contains("exceptingWindows: ordinaryWindows")
                 && !displayFilterBranch.contains("desktopIndependentWindow:")
-                && !displayFilterBranch.contains("excludingWindows:"),
-               "the bounded mode uses application exclusion, never a fixed window list")
+                && !displayFilterBranch.contains("excludingWindows:")
+                && displayFilterBranch.contains("mode: .displayRegion"),
+               "the bounded mode and missing-window fallback use the display filter with display-region configuration")
         expect(recorderCaptureCode.contains("selectionFrame: region.anchorRect")
                 && !recorderCaptureCode.contains("selectionFrame: window?.frame"),
                "capture mode uses the selection-time rectangle, never a moved window frame")
@@ -19107,9 +19111,20 @@ struct MetricsTests {
             .joined(separator: "\n")
         let recorderRecordMethod = recorderServiceCode.components(separatedBy: "func record(")
             .dropFirst().first?.components(separatedBy: "private func prepareCountdown").first ?? ""
+        let recorderCaptureModeCall = recorderCaptureCode.components(
+            separatedBy: "let mode = RecorderSupport.captureFilterMode(")
+            .dropFirst().first?.components(separatedBy: ")\n\n        switch mode").first ?? ""
+        let recorderServiceModeCall = recorderRecordMethod.components(
+            separatedBy: "let filterMode = RecorderSupport.captureFilterMode(")
+            .dropFirst().first?.components(separatedBy: ")\n        if filterMode").first ?? ""
+        expect(recorderCaptureModeCall.contains("NSScreen.screens")
+                && recorderServiceModeCall.contains("NSScreen.screens")
+                && !recorderCaptureModeCall.contains("display?.frame")
+                && !recorderServiceModeCall.contains("display?.frame"),
+               "both capture-mode callers derive their display frame from NSScreen, never a ScreenCaptureKit display frame")
         expect(recorderRecordMethod.contains("let filterMode = RecorderSupport.captureFilterMode(")
                 && recorderRecordMethod.contains("selectionFrame: region.anchorRect")
-                && recorderRecordMethod.contains("displayFrame: screen?.frame")
+                && recorderRecordMethod.contains("displayFrame: NSScreen.screens.first { $0.displayID == region.displayID }?.frame")
                 && recorderRecordMethod.contains("if filterMode == .displayRegion {\n            indicator.showRegionGuide(for: region)\n        }")
                 && recorderRecordMethod.components(
                     separatedBy: "indicator.showRegionGuide(for: region)").count == 2

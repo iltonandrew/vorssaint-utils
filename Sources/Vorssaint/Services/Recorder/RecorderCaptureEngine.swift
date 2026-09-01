@@ -205,14 +205,18 @@ final class RecorderCaptureEngine: NSObject {
             content.windows.first(where: { $0.windowID == windowID })
         }
         let display = content.displays.first(where: { $0.displayID == region.displayID })
+        // The mode is judged in Cocoa space at both call sites, so the guide and the filter cannot disagree about which mode applies.
         let mode = RecorderSupport.captureFilterMode(
             clickedWindowID: region.windowID,
             selectionFrame: region.anchorRect,
-            displayFrame: display?.frame)
+            displayFrame: NSScreen.screens.first { $0.displayID == region.displayID }?.frame)
 
         switch mode {
         case .independentWindow:
-            guard let window else { return nil }
+            guard let window else {
+                // A window gone by the time the stream starts records its display, as main did.
+                fallthrough
+            }
             return PreparedFilter(content: SCContentFilter(desktopIndependentWindow: window),
                                   mode: mode)
         case .displayRegion:
@@ -234,7 +238,7 @@ final class RecorderCaptureEngine: NSObject {
                 content: SCContentFilter(display: display,
                                          excludingApplications: [ownApplication],
                                          exceptingWindows: ordinaryWindows),
-                mode: mode)
+                mode: .displayRegion)
         }
     }
 
