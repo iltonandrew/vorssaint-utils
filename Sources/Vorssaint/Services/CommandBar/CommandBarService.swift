@@ -2091,9 +2091,13 @@ final class CommandBarService: ObservableObject {
         KillProcessService.shared.killTree(process, force: false)
     }
 
+    /// The row is offered only for an app the shared checks accept, so the
+    /// one way `select` still says no is a removal already running. The page
+    /// opens on that removal instead of the bar closing on nothing.
     private func openUninstaller(for url: URL) {
         hide()
-        guard AppUninstaller.shared.select(appURL: url) else { return }
+        let uninstaller = AppUninstaller.shared
+        guard uninstaller.select(appURL: url) || uninstaller.isRemoving else { return }
         SettingsRouter.shared.page = .uninstaller
         appDelegate()?.openSettingsWindow()
     }

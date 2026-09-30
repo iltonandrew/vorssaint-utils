@@ -546,8 +546,8 @@ enum CommandBarFeatureTests {
                 of: #"AppFeature\.uninstaller\.isAvailable,\s*UninstallerSupport\.selection\(for:\s*app\.url\) != nil"#,
                 options: .regularExpression) != nil,
                "the uninstall row is offered only for an app the uninstaller will take")
-        suite.expect(commandBarServiceSource.contains("guard AppUninstaller.shared.select(appURL: url) else { return }"),
-               "the command bar opens uninstaller settings only after accepting the app")
+        suite.expect(commandBarServiceSource.contains("uninstaller.select(appURL: url) || uninstaller.isRemoving"),
+               "the uninstall row still opens the page on a removal already running")
         let asciiSettingsSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/UI/Settings/CommandBarSettings.swift",
             encoding: .utf8)) ?? ""
