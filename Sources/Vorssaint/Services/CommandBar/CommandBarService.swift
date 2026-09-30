@@ -1805,7 +1805,7 @@ final class CommandBarService: ObservableObject {
                     self?.confirmForceQuit(running, name: app.name)
                 })
             }
-            if AppFeature.uninstaller.isAvailable, !app.isSystem {
+            if AppFeature.uninstaller.isAvailable, UninstallerSupport.selection(for: app.url) != nil {
                 actions.append(RowAction(id: "uninstallApp",
                                          title: String(format: bar.uninstallAppFormat, app.name),
                                          symbolName: "trash") { [weak self] in
@@ -2093,7 +2093,7 @@ final class CommandBarService: ObservableObject {
 
     private func openUninstaller(for url: URL) {
         hide()
-        AppUninstaller.shared.select(appURL: url)
+        guard AppUninstaller.shared.select(appURL: url) else { return }
         SettingsRouter.shared.page = .uninstaller
         appDelegate()?.openSettingsWindow()
     }

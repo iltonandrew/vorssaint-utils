@@ -542,6 +542,12 @@ enum CommandBarFeatureTests {
                "the bar borrows the ASCII layout through the shared TIS selection")
         suite.expect(commandBarServiceSource.contains("restoreSuspendedInputSource"),
                "closing the bar gives the suspended input source back")
+        suite.expect(commandBarServiceSource.range(
+                of: #"AppFeature\.uninstaller\.isAvailable,\s*UninstallerSupport\.selection\(for:\s*app\.url\) != nil"#,
+                options: .regularExpression) != nil,
+               "the uninstall row is offered only for an app the uninstaller will take")
+        suite.expect(commandBarServiceSource.contains("guard AppUninstaller.shared.select(appURL: url) else { return }"),
+               "the command bar opens uninstaller settings only after accepting the app")
         let asciiSettingsSource = (try? String(
             contentsOfFile: "Sources/Vorssaint/UI/Settings/CommandBarSettings.swift",
             encoding: .utf8)) ?? ""
