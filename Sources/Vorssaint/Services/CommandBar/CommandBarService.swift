@@ -157,6 +157,7 @@ final class CommandBarService: ObservableObject {
     private var windowEntries: [CommandBarEntry] = [] { didSet { foldedSections[.windows] = nil } }
     private var quitEntries: [CommandBarEntry] = [] { didSet { foldedSections[.quit] = nil } }
     private var uninstallEntries: [CommandBarEntry] = [] { didSet { foldedSections[.uninstallApps] = nil } }
+    private var uninstallableAppIDs: Set<String> = []
     /// The raw scan is what gets cached; the rows are rebuilt on every open so
     /// the live dot and the running apps are never a stale picture.
     private var cachedApps: [InstalledApps.InstalledApp] = []
@@ -276,6 +277,7 @@ final class CommandBarService: ObservableObject {
             normalizedByID = [:]
             entriesByStableKey = [:]
             cachedApps = []
+            uninstallableAppIDs = []
             pendingAppShortcut.cancel()
             windowsLoadedAt = nil
             rows = []
@@ -1152,7 +1154,9 @@ final class CommandBarService: ObservableObject {
                                                   runningBundleIDs: bundleIDs,
                                                   runningPaths: paths,
                                                   bar: bar)
-        uninstallEntries = CommandBarCatalog.uninstallEntries(cachedApps, bar: bar)
+        uninstallEntries = CommandBarCatalog.uninstallEntries(cachedApps,
+                                                              uninstallable: uninstallableAppIDs,
+                                                              bar: bar)
         if index { indexEntries() }
     }
 
@@ -2562,15 +2566,22 @@ final class CommandBarService: ObservableObject {
     private func loadAppsIfNeeded(for id: UUID) {
         guard AppFeature.commandBar.isAvailable, !appsLoading else { return }
         appsLoading = true
+        let listsUninstallable = AppFeature.uninstaller.isAvailable
+            && UserDefaults.standard.bool(forKey: DefaultsKey.uninstallerCommandBarEnabled)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let apps = SpotlightNames.enriching(InstalledApps.installedApplications(
                 includeSystemApplications: true,
                 spotlightPaths: Self.spotlightApplicationPaths()))
+            // The uninstall browse offers only what the uninstaller will
+            // take, and its check reads the disk for every app.
+            let uninstallable = listsUninstallable
+                ? UninstallerSupport.acceptedApplicationIDs(apps) : []
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.appsLoading = false
                 guard AppFeature.commandBar.isAvailable else { return }
                 self.cachedApps = apps
+                self.uninstallableAppIDs = uninstallable
                 self.rebuildRunningEntries()
                 if let key = self.pendingAppShortcut.take(in: self.rowShortcuts,
                                                           isAvailable: AppFeature.commandBar.isAvailable) {

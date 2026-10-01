@@ -455,12 +455,32 @@ enum AppManagementFeatureTests {
         try? FileManager.default.createDirectory(at: bareApp, withIntermediateDirectories: true)
         suite.expect(UninstallerSupport.selection(for: bareApp) == nil,
                "a bundle without Info.plist is refused before a scan starts")
+        // An iPhone or iPad app on a Mac carries its Info.plist at the top of
+        // the bundle and has no Contents folder for the uninstaller to remove.
+        let wrappedApp = selectionFixture.appendingPathComponent("Wrapped.app", isDirectory: true)
+        try? FileManager.default.createDirectory(at: wrappedApp, withIntermediateDirectories: true)
+        if let data = try? PropertyListSerialization.data(
+            fromPropertyList: ["CFBundleIdentifier": "com.vendor.wrapped"], format: .xml, options: 0) {
+            try? data.write(to: wrappedApp.appendingPathComponent("Info.plist"))
+        }
+        suite.expect(Bundle(url: wrappedApp)?.bundleIdentifier == "com.vendor.wrapped"
+               && UninstallerSupport.selection(for: wrappedApp) == nil,
+               "a bundle with a valid identifier but no Contents/Info.plist is refused")
+        let listedApps = [editorApp, appleEditorApp, bareApp, wrappedApp].map {
+            InstalledApps.InstalledApp(id: $0.standardizedFileURL.path, name: $0.lastPathComponent,
+                                      bundleID: nil, url: $0, isSystem: false)
+        }
+        suite.expect(UninstallerSupport.acceptedApplicationIDs(listedApps)
+                == [editorApp.standardizedFileURL.path],
+               "the command bar's uninstall list keeps only the apps the uninstaller accepts")
         try? FileManager.default.removeItem(at: selectionFixture)
         for path in ["Sources/Vorssaint/UI/Uninstall/UninstallerView.swift",
                      "Sources/Vorssaint/UI/MenuPanel/PanelUninstallerView.swift"] {
             let pickerSource = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
             suite.expect(pickerSource.contains("UninstallerSupport.offeredApplications()"),
                    "\(path) offers only the apps the shared selection checks accept")
+            suite.expect(pickerSource.contains("return uninstaller.select(appURL: app)"),
+                   "\(path) springs a refused drop back instead of accepting it")
         }
         let uninstallAppURL = URL(fileURLWithPath: "/Applications/Editor.app")
         suite.expect(UninstallerSupport.isNestedBundle(

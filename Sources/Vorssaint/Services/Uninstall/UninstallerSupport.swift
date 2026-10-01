@@ -153,6 +153,13 @@ enum UninstallerSupport {
         InstalledApps.installedApplications().filter { selection(for: $0.url) != nil }
     }
 
+    /// The listed apps the same check accepts, for a list built on the main
+    /// thread. Each check reads the disk, so it runs once with the
+    /// background scan that found the apps.
+    static func acceptedApplicationIDs(_ apps: [InstalledApps.InstalledApp]) -> Set<String> {
+        Set(apps.lazy.filter { !$0.isSystem && selection(for: $0.url) != nil }.map(\.id))
+    }
+
     static func fileIdentity(at url: URL) -> FileIdentity? {
         var info = stat()
         guard lstat(url.path, &info) == 0 else { return nil }
